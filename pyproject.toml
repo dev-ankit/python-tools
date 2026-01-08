@@ -8,7 +8,7 @@ version = "0.1.0"
 description = "Compare Locust performance metrics between runs"
 readme = "README.md"
 requires-python = ">=3.8"
-license = {text = "MIT"}
+license = {file = "LICENSE"}
 authors = [
     {name = "Ankit", email = "dev@ankit.dev"},
 ]
