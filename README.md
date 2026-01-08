@@ -10,7 +10,30 @@ A collection of small, independent Python utilities. Each tool is self-contained
 
 ## Installation
 
+Option 1: uv tool install
+
 Each tool can be installed independently using `uvx` directly from GitHub:
+
+For example:
+```bash
+uv tool install 'git+https://github.com/dev-ankit/python-tools.git#subdirectory=tools/locust-compare'
+```
+After that, you can run from anywhere:
+locust-compare <base_dir> <current_dir>
+
+To update to the latest from GitHub:
+
+```
+uv tool upgrade locust-compare
+
+# Or force reinstall:
+uv tool install --force 'git+https://github.com/dev-ankit/python-tools.git#subdirectory=tools/locust-compare'
+
+# To see installed tools:
+uv tool list
+```
+
+Option 2: Run directly
 
 ```bash
 uvx --from 'git+https://github.com/dev-ankit/python-tools.git#subdirectory=tools/<tool-name>' <tool-name> [args]
@@ -22,7 +45,7 @@ For example:
 uvx --from 'git+https://github.com/dev-ankit/python-tools.git#subdirectory=tools/locust-compare' locust-compare <base_dir> <current_dir>
 ```
 
-Or clone and run locally:
+Option 3: Clone and run locally:
 
 ```bash
 git clone https://github.com/dev-ankit/python-tools.git
@@ -34,10 +57,10 @@ uvx --from . <tool-name> [args]
 
 ```
 python-tools/
-├── README.md           # This file
+├── README.md      
 ├── LICENSE             # MIT License (shared)
 ├── .github/
-│   └── workflows/      # CI/CD pipelines
+│   └── workflows/
 └── tools/
     └── locust-compare/ # Locust performance comparison tool
         ├── compare_runs.py
