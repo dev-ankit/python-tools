@@ -1,8 +1,31 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
 [project]
 name = "locust-compare"
 version = "0.1.0"
 description = "Compare Locust performance metrics between runs"
+readme = "README.md"
 requires-python = ">=3.8"
+license = {file = "LICENSE"}
+authors = [
+    {name = "Ankit", email = "dev@ankit.dev"},
+]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.8",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+]
+
+[project.scripts]
+locust-compare = "compare_runs:main"
 
 [project.optional-dependencies]
 dev = [
@@ -25,3 +48,6 @@ exclude_lines = [
     "pragma: no cover",
     "if __name__ == .__main__.:",
 ]
+
+[tool.hatch.build.targets.wheel]
+only-include = ["compare_runs.py"]
