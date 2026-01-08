@@ -121,9 +121,9 @@ Example (truncated):
 - If the base value is `0` or missing, percent change is shown as `-`.
 - The tool skips non-feature HTML pages such as `htmlpublisher-wrapper.html`.
 - The tool prints a Verdict column. By default, it evaluates improvements as:
-  - Higher is better: `Requests/s`.
+  - Higher is better: `Requests/s`, `Request Count`.
   - Lower is better: all response-time metrics and percentiles, `Failure Count`, `Failures/s`.
-  - Neutral (no verdict): other metrics (e.g., `Request Count`, `Average Content Size`).
+  - Neutral (no verdict): other metrics (e.g., `Average Content Size`).
 
 ## Repository Layout
 

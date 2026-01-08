@@ -291,7 +291,7 @@ def _metric_direction(metric: str) -> str:
     - others -> neutral
     """
     m = metric.lower()
-    if metric == "Requests/s":
+    if metric == "Requests/s" or metric == "Request Count":
         return "higher"
     if metric in {"Failure Count", "Failures/s"}:
         return "lower"
