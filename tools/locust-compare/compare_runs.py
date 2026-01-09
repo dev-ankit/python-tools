@@ -1,18 +1,19 @@
 #!/usr/bin/env python3
+"""Compare Locust performance reports between a base and current run."""
+
 import argparse
 import atexit
 import csv
+import html as htmllib
 import json
+import re
+import shutil
 import tempfile
 import zipfile
 from dataclasses import dataclass
-from pathlib import Path
-from typing import Dict, List, Optional, Tuple
-import re
-import html as htmllib
 from datetime import datetime
-from urllib.parse import parse_qsl
-import shutil
+from pathlib import Path
+from typing import Dict, List, Optional
 
 # Track temporary directories for cleanup
 _temp_dirs: List[str] = []
@@ -157,29 +158,145 @@ def _extract_template_args(html_text: str) -> Optional[dict]:
     Uses a brace-matching approach to safely capture the JSON object.
     Returns a parsed dict or None if not found/invalid.
     """
-    # Prefer the explicit assignment form
-    m = re.search(r"window\.templateArgs\s*=\s*\{", html_text)
-    if not m:
+    match = re.search(r"window\.templateArgs\s*=\s*\{", html_text)
+    if not match:
         return None
-    brace_start = m.start() + m.group(0).rfind("{")
+
+    brace_start = match.start() + match.group(0).rfind("{")
     if brace_start == -1:
         return None
-    # Match braces to find the end of the JSON object
+
     depth = 0
-    i = brace_start
-    while i < len(html_text):
-        ch = html_text[i]
-        if ch == "{":
+    for i in range(brace_start, len(html_text)):
+        char = html_text[i]
+        if char == "{":
             depth += 1
-        elif ch == "}":
+        elif char == "}":
             depth -= 1
             if depth == 0:
                 try:
                     return json.loads(html_text[brace_start : i + 1])
-                except Exception:
+                except json.JSONDecodeError:
                     return None
-        i += 1
     return None
+
+
+def _parse_iso_timestamp(timestamp: Optional[str]) -> Optional[datetime]:
+    """Parse an ISO timestamp string into a datetime object."""
+    if not timestamp or not isinstance(timestamp, str):
+        return None
+
+    cleaned = timestamp.strip()
+    if cleaned.endswith("Z"):
+        cleaned = cleaned[:-1] + "+00:00"
+
+    try:
+        return datetime.fromisoformat(cleaned)
+    except ValueError:
+        return None
+
+
+def _normalize_endpoint_name(name: str, during_date: Optional[datetime]) -> str:
+    """Normalize endpoint names by converting date parameters to relative offsets.
+
+    Converts start_date and end_date query parameters to relative offsets
+    (e.g., "During", "During+1d", "During-2d") based on the test run date.
+    """
+    if not during_date or name == "Aggregated" or "?" not in name:
+        return name
+
+    path, query_string = name.split("?", 1)
+    parts = query_string.split("&") if query_string else []
+    normalized_parts = []
+
+    for part in parts:
+        if not part:
+            continue
+
+        if "=" in part:
+            key, value = part.split("=", 1)
+        else:
+            key, value = part, ""
+
+        key = key.strip()
+        value = value.strip()
+
+        if key in {"start_date", "end_date"} and re.match(r"^\d{4}-\d{2}-\d{2}$", value):
+            try:
+                year, month, day = map(int, value.split("-"))
+                date_value = datetime(year, month, day).date()
+                delta = (date_value - during_date.date()).days
+
+                if delta == 0:
+                    value = "During"
+                else:
+                    sign = "+" if delta > 0 else ""
+                    value = f"During{sign}{delta}d"
+            except ValueError:
+                pass
+
+        if value:
+            normalized_parts.append(f"{key}={value}")
+        else:
+            normalized_parts.append(key)
+
+    if normalized_parts:
+        return f"{path}?{'&'.join(normalized_parts)}"
+    return path
+
+
+def _extract_metric_value(item: dict, key: str) -> Optional[float]:
+    """Extract a numeric metric value from an HTML statistics item."""
+    value = item.get(key)
+    if isinstance(value, (int, float)):
+        return float(value)
+    return None
+
+
+def _parse_html_endpoint_metrics(
+    item: dict,
+    duration_seconds: Optional[float],
+) -> Dict[str, float]:
+    """Parse metrics from an HTML statistics item into a data dictionary."""
+    data: Dict[str, float] = {}
+
+    # Compute average RPS over the whole run when possible
+    num_requests = item.get("num_requests")
+    if isinstance(num_requests, (int, float)) and duration_seconds and duration_seconds > 0:
+        data["Requests/s"] = float(num_requests) / float(duration_seconds)
+    else:
+        rps = _extract_metric_value(item, "current_rps")
+        if rps is not None:
+            data["Requests/s"] = rps
+
+    # Map HTML field names to our standard metric names
+    metric_mappings = {
+        "Request Count": "num_requests",
+        "Failure Count": "num_failures",
+        "Average Response Time": "avg_response_time",
+        "Median Response Time": "median_response_time",
+        "Min Response Time": "min_response_time",
+        "Max Response Time": "max_response_time",
+        "Average Content Size": "avg_content_length",
+        "95%": "response_time_percentile_0.95",
+        "99%": "response_time_percentile_0.99",
+    }
+
+    for output_key, input_key in metric_mappings.items():
+        value = _extract_metric_value(item, input_key)
+        if value is not None:
+            data[output_key] = value
+
+    return data
+
+
+def _compute_duration_seconds(start_dt: Optional[datetime], end_dt: Optional[datetime]) -> Optional[float]:
+    """Compute test duration in seconds from start and end timestamps."""
+    if not start_dt or not end_dt:
+        return None
+
+    duration = (end_dt - start_dt).total_seconds()
+    return duration if duration > 0 else None
 
 
 def load_html_feature_map(dir_path: Path) -> Dict[str, Dict[str, Row]]:
@@ -188,118 +305,54 @@ def load_html_feature_map(dir_path: Path) -> Dict[str, Dict[str, Row]]:
     Returns a nested mapping: { feature_name: { endpoint_name: Row(...) } }
     The special endpoint name 'Aggregated' is included if present.
     """
-    features: Dict[str, Dict[str, Row]] = {}
     if not dir_path.is_dir():
-        return features
+        return {}
+
+    features: Dict[str, Dict[str, Row]] = {}
+
     for html_path in dir_path.glob("*.html"):
-        if html_path.name in {"htmlpublisher-wrapper.html"}:
+        if html_path.name == "htmlpublisher-wrapper.html":
             continue
+
         try:
             text = html_path.read_text(encoding="utf-8", errors="ignore")
-        except Exception:
+        except OSError:
             continue
-        tmpl = _extract_template_args(text)
-        if not tmpl:
+
+        template_args = _extract_template_args(text)
+        if not template_args:
             continue
-        rs = tmpl.get("requests_statistics") or []
-        # Compute test duration from start_time/end_time if available
-        def _parse_iso(ts: Optional[str]) -> Optional[datetime]:
-            if not ts or not isinstance(ts, str):
-                return None
-            t = ts.strip()
-            if t.endswith("Z"):
-                t = t[:-1] + "+00:00"
-            try:
-                return datetime.fromisoformat(t)
-            except Exception:
-                return None
 
-        start_dt = _parse_iso(tmpl.get("start_time"))
-        end_dt = _parse_iso(tmpl.get("end_time"))
-        duration_seconds: Optional[float] = None
-        if start_dt and end_dt:
-            try:
-                duration_seconds = (end_dt - start_dt).total_seconds()
-                if duration_seconds <= 0:
-                    duration_seconds = None
-            except Exception:
-                duration_seconds = None
-
-        # Determine the 'During' date used for label normalization.
-        # Prefer end date; fallback to start date if end is missing.
-        during_date = (end_dt or start_dt).date() if (end_dt or start_dt) else None
-
-        def normalize_endpoint_name(name: str) -> str:
-            if not during_date:
-                return name
-            if name == "Aggregated":
-                return name
-            # Split path and query
-            if "?" not in name:
-                return name
-            path, qs = name.split("?", 1)
-            parts = qs.split("&") if qs else []
-            new_parts = []
-            for part in parts:
-                if not part:
-                    continue
-                if "=" in part:
-                    k, v = part.split("=", 1)
-                else:
-                    k, v = part, ""
-                key = k.strip()
-                val = v.strip()
-                if key in {"start_date", "end_date"} and re.match(r"^\d{4}-\d{2}-\d{2}$", val):
-                    try:
-                        y, m, d = map(int, val.split("-"))
-                        dt = datetime(y, m, d).date()
-                        delta = (dt - during_date).days
-                        if delta == 0:
-                            rel = "During"
-                        else:
-                            sign = "+" if delta > 0 else ""
-                            rel = f"During{sign}{delta}d"
-                        val = rel
-                    except Exception:
-                        pass
-                new_parts.append(f"{key}={val}" if val != "" else key)
-            return path + ("?" + "&".join(new_parts) if new_parts else "")
-        if not isinstance(rs, list) or not rs:
+        requests_statistics = template_args.get("requests_statistics") or []
+        if not isinstance(requests_statistics, list) or not requests_statistics:
             continue
-        fmap: Dict[str, Row] = {}
-        for item in rs:
+
+        start_dt = _parse_iso_timestamp(template_args.get("start_time"))
+        end_dt = _parse_iso_timestamp(template_args.get("end_time"))
+        duration_seconds = _compute_duration_seconds(start_dt, end_dt)
+
+        # Use end date for normalization, fallback to start date
+        during_date = end_dt or start_dt
+
+        feature_map: Dict[str, Row] = {}
+
+        for item in requests_statistics:
             if not isinstance(item, dict):
                 continue
-            name = htmllib.unescape(str(item.get("name", "")).strip())
-            name = normalize_endpoint_name(name)
+
+            raw_name = str(item.get("name", "")).strip()
+            name = htmllib.unescape(raw_name)
+            name = _normalize_endpoint_name(name, during_date)
+
             if not name:
                 continue
-            data: Dict[str, float] = {}
-            def s(key_out: str, val):
-                if isinstance(val, (int, float)):
-                    data[key_out] = float(val)
-            # Compute average RPS over the whole run when possible
-            num_req = item.get("num_requests")
-            if isinstance(num_req, (int, float)) and duration_seconds and duration_seconds > 0:
-                data["Requests/s"] = float(num_req) / float(duration_seconds)
-            else:
-                # Fallback to instantaneous value if duration unavailable
-                s("Requests/s", item.get("current_rps"))
-            s("Request Count", item.get("num_requests"))
-            s("Failure Count", item.get("num_failures"))
-            s("Average Response Time", item.get("avg_response_time"))
-            s("Median Response Time", item.get("median_response_time"))
-            s("Min Response Time", item.get("min_response_time"))
-            s("Max Response Time", item.get("max_response_time"))
-            s("Average Content Size", item.get("avg_content_length"))
-            # Percentiles commonly present
-            s("95%", item.get("response_time_percentile_0.95"))
-            s("99%", item.get("response_time_percentile_0.99"))
 
-            fmap[name] = Row(name=name, type="HTML", data=data)
+            data = _parse_html_endpoint_metrics(item, duration_seconds)
+            feature_map[name] = Row(name=name, type="HTML", data=data)
 
-        if fmap:
-            features[html_path.stem] = fmap
+        if feature_map:
+            features[html_path.stem] = feature_map
+
     return features
 
 
@@ -327,60 +380,142 @@ def format_number(v: Optional[float]) -> str:
     return f"{v:.3f}"
 
 
-def print_section(title: str):
+def print_section(title: str) -> None:
+    """Print a plain text section header with underline."""
     print("")
     print(title)
     print("-" * len(title))
 
 
-def print_section_markdown(title: str, level: int = 2):
+def print_section_markdown(title: str, level: int = 2) -> None:
     """Print a markdown section header."""
     print("")
-    print("#" * level + " " + title)
+    print(f"{'#' * level} {title}")
     print("")
+
+
+HIGHER_IS_BETTER_METRICS = {"Requests/s", "Request Count"}
+LOWER_IS_BETTER_METRICS = {"Failure Count", "Failures/s"}
 
 
 def _metric_direction(metric: str) -> str:
     """Return 'higher', 'lower', or 'neutral' for a metric's desirable direction.
 
-    - 'Requests/s' -> higher is better
-    - Failures and response times / percentiles -> lower is better
-    - others -> neutral
+    - Throughput metrics (Requests/s, Request Count) -> higher is better
+    - Failure metrics -> lower is better
+    - Response time metrics and percentiles -> lower is better
+    - Others -> neutral (no preference)
     """
-    m = metric.lower()
-    if metric == "Requests/s" or metric == "Request Count":
+    if metric in HIGHER_IS_BETTER_METRICS:
         return "higher"
-    if metric in {"Failure Count", "Failures/s"}:
+
+    if metric in LOWER_IS_BETTER_METRICS:
         return "lower"
-    if "response time" in m:
+
+    # Response time metrics (case-insensitive check)
+    if "response time" in metric.lower():
         return "lower"
+
+    # Percentile metrics (e.g., "95%", "99%")
     if metric.endswith("%"):
         return "lower"
+
     return "neutral"
 
 
-def _verdict_for(metric: str, b: Optional[float], c: Optional[float]) -> Optional[str]:
-    if b is None or c is None:
+def _verdict_for(metric: str, base_val: Optional[float], curr_val: Optional[float]) -> Optional[str]:
+    """Determine the verdict (better/worse/same) for a metric comparison."""
+    if base_val is None or curr_val is None:
         return None
-    if b == c:
+
+    if base_val == curr_val:
         return "same"
+
     direction = _metric_direction(metric)
+
     if direction == "higher":
-        return "better" if c > b else "worse"
+        return "better" if curr_val > base_val else "worse"
+
     if direction == "lower":
-        return "better" if c < b else "worse"
+        return "better" if curr_val < base_val else "worse"
+
     return None
 
 
 def _verdict_to_emoji(verdict: Optional[str]) -> str:
     """Convert verdict to emoji for markdown output."""
-    if verdict == "better":
-        return "✅"
-    elif verdict == "worse":
-        return "❌"
-    elif verdict == "same":
-        return "➖"
-    return ""
+    verdict_emoji_map = {
+        "better": "✅",
+        "worse": "❌",
+        "same": "➖",
+    }
+    return verdict_emoji_map.get(verdict, "")
+
+
+def _format_diff(d: Optional[float]) -> str:
+    """Format a diff value for display."""
+    if d is None:
+        return "-"
+    if abs(d - round(d)) > 1e-9:
+        return f"{d:+.3f}"
+    return f"{int(d):+d}"
+
+
+def _get_comparison_fields(
+    base_row: Optional[Row],
+    curr_row: Optional[Row],
+    important_fields: List[str],
+) -> List[str]:
+    """Get the list of fields to compare, including extra percentile columns."""
+    base_data = base_row.data if base_row else {}
+    curr_data = curr_row.data if curr_row else {}
+
+    fields = important_fields[:]
+    extra_percentiles = [
+        k for k in (curr_data.keys() | base_data.keys())
+        if k.endswith("%") and k not in fields
+    ]
+    fields.extend(sorted(extra_percentiles))
+    return fields
+
+
+def _build_comparison_rows(
+    base_row: Optional[Row],
+    curr_row: Optional[Row],
+    fields: List[str],
+    show_verdict: bool,
+    use_emoji: bool,
+) -> List[List[str]]:
+    """Build comparison data rows for rendering."""
+    base_data = base_row.data if base_row else {}
+    curr_data = curr_row.data if curr_row else {}
+
+    rows: List[List[str]] = []
+    for field in fields:
+        base_val = base_data.get(field)
+        curr_val = curr_data.get(field)
+        diff_val = diff(base_val, curr_val)
+        pct = pct_change(base_val, curr_val)
+        pct_str = "-" if pct is None else f"{pct:+.1f}%"
+
+        row = [
+            field,
+            format_number(base_val),
+            format_number(curr_val),
+            _format_diff(diff_val),
+            pct_str,
+        ]
+
+        if show_verdict:
+            verdict = _verdict_for(field, base_val, curr_val)
+            if use_emoji:
+                row.append(_verdict_to_emoji(verdict))
+            else:
+                row.append("-" if verdict is None else verdict)
+
+        rows.append(row)
+
+    return rows
 
 
 def render_comparison_markdown(
@@ -389,51 +524,19 @@ def render_comparison_markdown(
     important_fields: List[str],
     *,
     show_verdict: bool = True,
-):
+) -> None:
     """Render comparison as markdown table with emoji indicators."""
-    headers = [
-        "Metric",
-        "Base",
-        "Current",
-        "Diff",
-        "% Change",
-    ]
+    headers = ["Metric", "Base", "Current", "Diff", "% Change"]
     if show_verdict:
         headers.append("Verdict")
-    rows: List[List[str]] = []
 
-    base_data = base_row.data if base_row else {}
-    curr_data = curr_row.data if curr_row else {}
+    fields = _get_comparison_fields(base_row, curr_row, important_fields)
+    rows = _build_comparison_rows(base_row, curr_row, fields, show_verdict, use_emoji=True)
 
-    fields = important_fields[:]
-    # Also include any extra percentile columns present in data
-    extra_fields = [k for k in curr_data.keys() | base_data.keys() if k.endswith("%") and k not in fields]
-    fields.extend(sorted(extra_fields))
-
-    for field in fields:
-        b = base_data.get(field)
-        c = curr_data.get(field)
-        d = diff(b, c)
-        p = pct_change(b, c)
-        p_str = "-" if p is None else f"{p:+.1f}%"
-        row = [
-            field,
-            format_number(b),
-            format_number(c),
-            ("-" if d is None else (f"{d:+.3f}" if abs(d - round(d)) > 1e-9 else f"{int(d):+d}")),
-            p_str,
-        ]
-        if show_verdict:
-            v = _verdict_for(field, b, c)
-            emoji = _verdict_to_emoji(v)
-            row.append(emoji)
-        rows.append(row)
-
-    # Print markdown table
     print("| " + " | ".join(headers) + " |")
     print("| " + " | ".join(["---"] * len(headers)) + " |")
-    for r in rows:
-        print("| " + " | ".join(r) + " |")
+    for row in rows:
+        print("| " + " | ".join(row) + " |")
 
 
 def render_comparison(
@@ -443,154 +546,136 @@ def render_comparison(
     *,
     colorize: bool = False,
     show_verdict: bool = True,
-):
-    headers = [
-        "Metric",
-        "Base",
-        "Current",
-        "Diff",
-        "% Change",
-    ]
+) -> None:
+    """Render comparison as a plain text table."""
+    headers = ["Metric", "Base", "Current", "Diff", "% Change"]
     if show_verdict:
         headers.append("Verdict")
-    rows: List[List[str]] = []
 
-    base_data = base_row.data if base_row else {}
-    curr_data = curr_row.data if curr_row else {}
+    fields = _get_comparison_fields(base_row, curr_row, important_fields)
+    rows = _build_comparison_rows(base_row, curr_row, fields, show_verdict, use_emoji=False)
 
-    fields = important_fields[:]
-    # Also include any extra percentile columns present in data
-    extra_fields = [k for k in curr_data.keys() | base_data.keys() if k.endswith("%") and k not in fields]
-    fields.extend(sorted(extra_fields))
-
-    for field in fields:
-        b = base_data.get(field)
-        c = curr_data.get(field)
-        d = diff(b, c)
-        p = pct_change(b, c)
-        p_str = "-" if p is None else f"{p:+.1f}%"
-        row = [
-            field,
-            format_number(b),
-            format_number(c),
-            ("-" if d is None else (f"{d:+.3f}" if abs(d - round(d)) > 1e-9 else f"{int(d):+d}")),
-            p_str,
-        ]
-        if show_verdict:
-            v = _verdict_for(field, b, c)
-            row.append("-" if v is None else v)
-        rows.append(row)
-
-    # Determine column widths
-    widths = [max(len(h), *(len(r[i]) for r in rows)) for i, h in enumerate(headers)]
+    # Calculate column widths
+    widths = [
+        max(len(headers[i]), *(len(row[i]) for row in rows))
+        for i in range(len(headers))
+    ]
 
     # Print header
     header_line = "  ".join(h.ljust(widths[i]) for i, h in enumerate(headers))
-    sep_line = "  ".join("-" * widths[i] for i in range(len(headers)))
+    separator_line = "  ".join("-" * w for w in widths)
     print(header_line)
-    print(sep_line)
-    for r in rows:
-        line = "  ".join(r[i].ljust(widths[i]) for i in range(len(headers)))
-        if colorize:
-            # color whole row based on verdict
-            v = r[-1] if show_verdict else None
-            if v == "better":
-                line = "\033[32m" + line + "\033[0m"  # green
-            elif v == "worse":
-                line = "\033[31m" + line + "\033[0m"  # red
+    print(separator_line)
+
+    # Print data rows
+    for row in rows:
+        line = "  ".join(row[i].ljust(widths[i]) for i in range(len(headers)))
+
+        if colorize and show_verdict:
+            verdict = row[-1]
+            if verdict == "better":
+                line = f"\033[32m{line}\033[0m"
+            elif verdict == "worse":
+                line = f"\033[31m{line}\033[0m"
+
         print(line)
 
 
-def compare_reports(
-    base_path: Path,
-    curr_path: Path,
-    output_format: str = "text",
-    *,
-    colorize: bool = False,
-    show_verdict: bool = True,
-) -> int:
-    # Resolve paths (extract zip files if needed)
-    base_path = _resolve_path(base_path)
-    curr_path = _resolve_path(curr_path)
+IMPORTANT_FIELDS = [
+    "Requests/s",
+    "Request Count",
+    "Failure Count",
+    "Average Response Time",
+    "Median Response Time",
+    "Min Response Time",
+    "Max Response Time",
+    "95%",
+]
 
-    base_rows = load_report(base_path)
-    curr_rows = load_report(curr_path)
 
-    base_idx = index_rows(base_rows)
-    curr_idx = index_rows(curr_rows)
+def _build_json_entry(
+    base_row: Optional[Row],
+    curr_row: Optional[Row],
+    important_fields: List[str],
+) -> Dict[str, Dict[str, Optional[float]]]:
+    """Build a JSON entry for a single endpoint comparison."""
+    fields = set(important_fields)
+    if base_row:
+        fields.update(base_row.data.keys())
+    if curr_row:
+        fields.update(curr_row.data.keys())
 
+    entry: Dict[str, Dict[str, Optional[float]]] = {}
+    for field in sorted(fields):
+        base_val = base_row.data.get(field) if base_row else None
+        curr_val = curr_row.data.get(field) if curr_row else None
+        entry[field] = {
+            "base": base_val,
+            "current": curr_val,
+            "diff": diff(base_val, curr_val),
+            "pct_change": pct_change(base_val, curr_val),
+        }
+    return entry
+
+
+def _output_json(
+    base_idx: Dict[str, Row],
+    curr_idx: Dict[str, Row],
+    base_html_map: Dict[str, Dict[str, Row]],
+    curr_html_map: Dict[str, Dict[str, Row]],
+    important_fields: List[str],
+) -> None:
+    """Output comparison results as JSON."""
+    output: Dict[str, Dict[str, Dict[str, Optional[float]]]] = {}
+
+    # Add CSV report entries
     all_keys = sorted(set(base_idx.keys()) | set(curr_idx.keys()))
+    for key in all_keys:
+        output[key] = _build_json_entry(
+            base_idx.get(key),
+            curr_idx.get(key),
+            important_fields,
+        )
 
-    important_fields = [
-        "Requests/s",
-        "Request Count",
-        "Failure Count",
-        "Average Response Time",
-        "Median Response Time",
-        "Min Response Time",
-        "Max Response Time",
-        "95%",
-    ]
+    # Add HTML feature entries
+    feature_names = sorted(set(base_html_map.keys()) | set(curr_html_map.keys()))
+    for feature in feature_names:
+        base_feature = base_html_map.get(feature, {})
+        curr_feature = curr_html_map.get(feature, {})
+        endpoint_names = sorted(set(base_feature.keys()) | set(curr_feature.keys()))
 
-    # Also parse per-feature HTML pages if directories are given
-    base_html_map = load_html_feature_map(base_path if base_path.is_dir() else base_path.parent)
-    curr_html_map = load_html_feature_map(curr_path if curr_path.is_dir() else curr_path.parent)
+        for endpoint in endpoint_names:
+            output[f"HTML:{feature}:{endpoint}"] = _build_json_entry(
+                base_feature.get(endpoint),
+                curr_feature.get(endpoint),
+                important_fields,
+            )
 
-    if output_format == "json":
-        # Produce a structured JSON dict
-        out: Dict[str, Dict[str, Dict[str, Optional[float]]]] = {}
-        for key in all_keys:
-            b = base_idx.get(key)
-            c = curr_idx.get(key)
-            # Combine fields present
-            fields = set(important_fields)
-            if b:
-                fields.update(b.data.keys())
-            if c:
-                fields.update(c.data.keys())
-            entry: Dict[str, Dict[str, Optional[float]]] = {}
-            for f in sorted(fields):
-                bb = b.data.get(f) if b else None
-                cc = c.data.get(f) if c else None
-                entry[f] = {
-                    "base": bb,
-                    "current": cc,
-                    "diff": diff(bb, cc),
-                    "pct_change": pct_change(bb, cc),
-                }
-            out[key] = entry
-        # Add HTML features per endpoint
-        feature_names = sorted(set(base_html_map.keys()) | set(curr_html_map.keys()))
-        for feat in feature_names:
-            b_map = base_html_map.get(feat, {})
-            c_map = curr_html_map.get(feat, {})
-            endpoint_names = sorted(set(b_map.keys()) | set(c_map.keys()))
-            for ep in endpoint_names:
-                b = b_map.get(ep)
-                c = c_map.get(ep)
-                fields = set(important_fields)
-                if b:
-                    fields.update(b.data.keys())
-                if c:
-                    fields.update(c.data.keys())
-                entry: Dict[str, Dict[str, Optional[float]]] = {}
-                for f in sorted(fields):
-                    bb = b.data.get(f) if b else None
-                    cc = c.data.get(f) if c else None
-                    entry[f] = {
-                        "base": bb,
-                        "current": cc,
-                        "diff": diff(bb, cc),
-                        "pct_change": pct_change(bb, cc),
-                    }
-                out[f"HTML:{feat}:{ep}"] = entry
-        print(json.dumps(out, indent=2))
-        return 0
+    print(json.dumps(output, indent=2))
 
-    # Human readable output
-    if output_format == "markdown":
+
+def _output_human_readable(
+    base_idx: Dict[str, Row],
+    curr_idx: Dict[str, Row],
+    base_html_map: Dict[str, Dict[str, Row]],
+    curr_html_map: Dict[str, Dict[str, Row]],
+    important_fields: List[str],
+    *,
+    use_markdown: bool,
+    colorize: bool,
+    show_verdict: bool,
+) -> None:
+    """Output comparison results in human-readable format (text or markdown)."""
+    all_keys = sorted(set(base_idx.keys()) | set(curr_idx.keys()))
+    endpoint_keys = [k for k in all_keys if k != "__Aggregated__"]
+    feature_keys = sorted(set(base_html_map.keys()) | set(curr_html_map.keys()))
+
+    if use_markdown:
         print("# Locust Performance Comparison")
         print("")
+
+    # Render aggregated section
+    if use_markdown:
         print_section_markdown("Aggregated", 2)
         render_comparison_markdown(
             base_idx.get("__Aggregated__"),
@@ -598,35 +683,6 @@ def compare_reports(
             important_fields,
             show_verdict=show_verdict,
         )
-
-        endpoint_keys = [k for k in all_keys if k != "__Aggregated__"]
-        for ek in endpoint_keys:
-            title = f"Endpoint: {ek}"
-            print_section_markdown(title, 3)
-            render_comparison_markdown(
-                base_idx.get(ek),
-                curr_idx.get(ek),
-                important_fields,
-                show_verdict=show_verdict,
-            )
-
-        # Render HTML features
-        feature_keys = sorted(set(base_html_map.keys()) | set(curr_html_map.keys()))
-        if feature_keys:
-            print_section_markdown("HTML Features", 2)
-            for fk in feature_keys:
-                print_section_markdown(f"Feature: {fk}", 3)
-                b_map = base_html_map.get(fk, {})
-                c_map = curr_html_map.get(fk, {})
-                ep_keys = sorted(set(b_map.keys()) | set(c_map.keys()))
-                for ep in ep_keys:
-                    print_section_markdown(f"Endpoint: {ep}", 4)
-                    render_comparison_markdown(
-                        b_map.get(ep),
-                        c_map.get(ep),
-                        important_fields,
-                        show_verdict=show_verdict,
-                    )
     else:
         print_section("Aggregated")
         render_comparison(
@@ -637,55 +693,141 @@ def compare_reports(
             show_verdict=show_verdict,
         )
 
-        endpoint_keys = [k for k in all_keys if k != "__Aggregated__"]
-        for ek in endpoint_keys:
-            title = f"Endpoint: {ek}"
+    # Render endpoint sections
+    for endpoint_key in endpoint_keys:
+        title = f"Endpoint: {endpoint_key}"
+        if use_markdown:
+            print_section_markdown(title, 3)
+            render_comparison_markdown(
+                base_idx.get(endpoint_key),
+                curr_idx.get(endpoint_key),
+                important_fields,
+                show_verdict=show_verdict,
+            )
+        else:
             print_section(title)
             render_comparison(
-                base_idx.get(ek),
-                curr_idx.get(ek),
+                base_idx.get(endpoint_key),
+                curr_idx.get(endpoint_key),
                 important_fields,
                 colorize=colorize,
                 show_verdict=show_verdict,
             )
 
-        # Render HTML features
-        feature_keys = sorted(set(base_html_map.keys()) | set(curr_html_map.keys()))
-        if feature_keys:
+    # Render HTML features
+    if feature_keys:
+        if use_markdown:
+            print_section_markdown("HTML Features", 2)
+        else:
             print_section("HTML Features")
-            for fk in feature_keys:
-                print_section(f"Feature: {fk}")
-                b_map = base_html_map.get(fk, {})
-                c_map = curr_html_map.get(fk, {})
-                ep_keys = sorted(set(b_map.keys()) | set(c_map.keys()))
-                for ep in ep_keys:
+
+        for feature_key in feature_keys:
+            if use_markdown:
+                print_section_markdown(f"Feature: {feature_key}", 3)
+            else:
+                print_section(f"Feature: {feature_key}")
+
+            base_feature = base_html_map.get(feature_key, {})
+            curr_feature = curr_html_map.get(feature_key, {})
+            ep_keys = sorted(set(base_feature.keys()) | set(curr_feature.keys()))
+
+            for ep in ep_keys:
+                if use_markdown:
+                    print_section_markdown(f"Endpoint: {ep}", 4)
+                    render_comparison_markdown(
+                        base_feature.get(ep),
+                        curr_feature.get(ep),
+                        important_fields,
+                        show_verdict=show_verdict,
+                    )
+                else:
                     print_section(f"Endpoint: {ep}")
                     render_comparison(
-                        b_map.get(ep),
-                        c_map.get(ep),
+                        base_feature.get(ep),
+                        curr_feature.get(ep),
                         important_fields,
                         colorize=colorize,
                         show_verdict=show_verdict,
                     )
 
+
+def compare_reports(
+    base_path: Path,
+    curr_path: Path,
+    output_format: str = "text",
+    *,
+    colorize: bool = False,
+    show_verdict: bool = True,
+) -> int:
+    """Compare two Locust performance reports and output the results.
+
+    Args:
+        base_path: Path to the base report directory, CSV file, or zip file.
+        curr_path: Path to the current report directory, CSV file, or zip file.
+        output_format: Output format - "text", "json", or "markdown".
+        colorize: Whether to colorize text output (green=better, red=worse).
+        show_verdict: Whether to show the verdict column.
+
+    Returns:
+        0 on success, non-zero on error.
+    """
+    # Resolve paths (extract zip files if needed)
+    base_path = _resolve_path(base_path)
+    curr_path = _resolve_path(curr_path)
+
+    # Load CSV reports
+    base_rows = load_report(base_path)
+    curr_rows = load_report(curr_path)
+    base_idx = index_rows(base_rows)
+    curr_idx = index_rows(curr_rows)
+
+    # Load HTML feature maps
+    base_html_dir = base_path if base_path.is_dir() else base_path.parent
+    curr_html_dir = curr_path if curr_path.is_dir() else curr_path.parent
+    base_html_map = load_html_feature_map(base_html_dir)
+    curr_html_map = load_html_feature_map(curr_html_dir)
+
+    if output_format == "json":
+        _output_json(base_idx, curr_idx, base_html_map, curr_html_map, IMPORTANT_FIELDS)
+    else:
+        _output_human_readable(
+            base_idx,
+            curr_idx,
+            base_html_map,
+            curr_html_map,
+            IMPORTANT_FIELDS,
+            use_markdown=(output_format == "markdown"),
+            colorize=colorize,
+            show_verdict=show_verdict,
+        )
+
     return 0
 
 
-def main():
+def main() -> int:
+    """CLI entry point for locust-compare."""
     parser = argparse.ArgumentParser(
         description=(
-            "Compare Locust performance reports between a base and current run.\n"
+            "Compare Locust performance reports between a base and current run. "
             "Provide either directories containing report.csv or direct CSV file paths."
         )
     )
-    parser.add_argument("base", type=Path, help="Base run directory or report.csv path")
-    parser.add_argument("current", type=Path, help="Current run directory or report.csv path")
+    parser.add_argument(
+        "base",
+        type=Path,
+        help="Base run directory, report.csv path, or zip file",
+    )
+    parser.add_argument(
+        "current",
+        type=Path,
+        help="Current run directory, report.csv path, or zip file",
+    )
     parser.add_argument(
         "-o",
         "--output",
         choices=["text", "json", "markdown"],
         default="text",
-        help="Output format: text (default), json, or markdown with emoji indicators (✅ better, ❌ worse, ➖ same)",
+        help="Output format: text (default), json, or markdown",
     )
     parser.add_argument(
         "--color",
@@ -700,6 +842,7 @@ def main():
     )
 
     args = parser.parse_args()
+
     try:
         return compare_reports(
             args.base,
@@ -708,7 +851,7 @@ def main():
             colorize=args.color,
             show_verdict=args.show_verdict,
         )
-    except Exception as e:
+    except (FileNotFoundError, ValueError) as e:
         print(f"Error: {e}")
         return 1
 
