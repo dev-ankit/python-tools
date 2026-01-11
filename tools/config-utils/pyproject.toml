@@ -1,0 +1,20 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "config-utils"
+version = "0.1.0"
+description = "CLI tool for capturing environment variables and Django settings"
+readme = "README.md"
+requires-python = ">=3.8"
+dependencies = [
+    "click>=8.0.0",
+    "pyyaml>=6.0",
+]
+
+[project.scripts]
+config-utils = "cli:main"
+
+[tool.hatch.build.targets.wheel]
+only-include = ["cli.py"]

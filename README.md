@@ -7,6 +7,7 @@ A collection of small, independent Python utilities. Each tool is self-contained
 | Tool | Description |
 |------|-------------|
 | [locust-compare](tools/locust-compare/) | Compare performance metrics between two Locust runs |
+| [config-utils](tools/config-utils/) | CLI tool for capturing environment variables and Django settings |
 
 ## Installation
 
@@ -16,18 +17,28 @@ Each tool can be installed independently using `uvx` directly from GitHub:
 
 For example:
 ```bash
+# Install locust-compare
 uv tool install 'git+https://github.com/dev-ankit/python-tools.git#subdirectory=tools/locust-compare'
+
+# Install config-utils
+uv tool install 'git+https://github.com/dev-ankit/python-tools.git#subdirectory=tools/config-utils'
 ```
-After that, you can run from anywhere:
+
+After installation, you can run from anywhere:
+```bash
 locust-compare <base_dir> <current_dir>
+config-utils capture-env
+```
 
 To update to the latest from GitHub:
 
-```
+```bash
 uv tool upgrade locust-compare
+uv tool upgrade config-utils
 
 # Or force reinstall:
 uv tool install --force 'git+https://github.com/dev-ankit/python-tools.git#subdirectory=tools/locust-compare'
+uv tool install --force 'git+https://github.com/dev-ankit/python-tools.git#subdirectory=tools/config-utils'
 
 # To see installed tools:
 uv tool list
@@ -42,7 +53,11 @@ uvx --from 'git+https://github.com/dev-ankit/python-tools.git#subdirectory=tools
 For example:
 
 ```bash
+# Run locust-compare
 uvx --from 'git+https://github.com/dev-ankit/python-tools.git#subdirectory=tools/locust-compare' locust-compare <base_dir> <current_dir>
+
+# Run config-utils
+uvx --from 'git+https://github.com/dev-ankit/python-tools.git#subdirectory=tools/config-utils' config-utils capture-env
 ```
 
 Option 3: Clone and run locally:
@@ -62,11 +77,15 @@ python-tools/
 ├── .github/
 │   └── workflows/
 └── tools/
-    └── locust-compare/ # Locust performance comparison tool
-        ├── compare_runs.py
+    ├── locust-compare/ # Locust performance comparison tool
+    │   ├── compare_runs.py
+    │   ├── pyproject.toml
+    │   ├── README.md
+    │   └── tests/
+    └── config-utils/ # CLI tool for capturing environment variables and Django settings
+        ├── cli.py
         ├── pyproject.toml
-        ├── README.md
-        └── tests/
+        └── README.md
 ```
 
 ## Adding a New Tool
