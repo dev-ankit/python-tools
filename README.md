@@ -8,6 +8,7 @@ A collection of small, independent Python utilities. Each tool is self-contained
 |------|-------------|
 | [locust-compare](tools/locust-compare/) | Compare performance metrics between two Locust runs |
 | [config-utils](tools/config-utils/) | CLI tool for capturing environment variables and Django settings |
+| [wt-worktree](tools/wt-worktree/) | Git worktree manager for parallel development workflows |
 
 ## Installation
 
@@ -22,12 +23,16 @@ uv tool install 'git+https://github.com/dev-ankit/python-tools.git#subdirectory=
 
 # Install config-utils
 uv tool install 'git+https://github.com/dev-ankit/python-tools.git#subdirectory=tools/config-utils'
+
+# Install wt-worktree
+uv tool install 'git+https://github.com/dev-ankit/python-tools.git#subdirectory=tools/wt-worktree'
 ```
 
 After installation, you can run from anywhere:
 ```bash
 locust-compare <base_dir> <current_dir>
 config-utils capture-env
+wt init
 ```
 
 To update to the latest from GitHub:
@@ -35,10 +40,12 @@ To update to the latest from GitHub:
 ```bash
 uv tool upgrade locust-compare
 uv tool upgrade config-utils
+uv tool upgrade wt-worktree
 
 # Or force reinstall:
 uv tool install --force 'git+https://github.com/dev-ankit/python-tools.git#subdirectory=tools/locust-compare'
 uv tool install --force 'git+https://github.com/dev-ankit/python-tools.git#subdirectory=tools/config-utils'
+uv tool install --force 'git+https://github.com/dev-ankit/python-tools.git#subdirectory=tools/wt-worktree'
 
 # To see installed tools:
 uv tool list
@@ -58,6 +65,9 @@ uvx --from 'git+https://github.com/dev-ankit/python-tools.git#subdirectory=tools
 
 # Run config-utils
 uvx --from 'git+https://github.com/dev-ankit/python-tools.git#subdirectory=tools/config-utils' config-utils capture-env
+
+# Run wt
+uvx --from 'git+https://github.com/dev-ankit/python-tools.git#subdirectory=tools/wt-worktree' wt init
 ```
 
 Option 3: Clone and run locally:
@@ -72,20 +82,27 @@ uvx --from . <tool-name> [args]
 
 ```
 python-tools/
-├── README.md      
+├── README.md
 ├── LICENSE             # MIT License (shared)
 ├── .github/
 │   └── workflows/
 └── tools/
-    ├── locust-compare/ # Locust performance comparison tool
+    ├── locust-compare/  # Locust performance comparison tool
     │   ├── compare_runs.py
     │   ├── pyproject.toml
     │   ├── README.md
     │   └── tests/
-    └── config-utils/ # CLI tool for capturing environment variables and Django settings
-        ├── cli.py
+    ├── config-utils/    # CLI tool for capturing environment variables and Django settings
+    │   ├── cli.py
+    │   ├── pyproject.toml
+    │   └── README.md
+    └── wt-worktree/     # Git worktree manager for parallel development
+        ├── wt/
+        ├── tests/
         ├── pyproject.toml
-        └── README.md
+        ├── README.md
+        ├── PRD.md
+        └── notes.md
 ```
 
 ## Adding a New Tool
