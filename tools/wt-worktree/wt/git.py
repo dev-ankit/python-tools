@@ -56,13 +56,32 @@ def is_git_repo(path: Optional[Path] = None) -> bool:
 
 def get_repo_root(path: Optional[Path] = None) -> Path:
     """
-    Get the root directory of the git repository.
+    Get the root directory of the git repository (current worktree).
 
     Raises:
         GitError: If not in a git repository
     """
     result = run_git(["rev-parse", "--show-toplevel"], cwd=path)
     return Path(result.stdout.strip())
+
+
+def get_main_worktree_root(path: Optional[Path] = None) -> Path:
+    """
+    Get the root directory of the main worktree (where .git is a directory).
+
+    This is important because .wt.toml is stored in the main worktree,
+    but we might be running commands from a secondary worktree.
+
+    Raises:
+        GitError: If not in a git repository
+    """
+    # List all worktrees - the first one is always the main worktree
+    worktrees = list_worktrees(path)
+    if not worktrees:
+        raise GitError("No worktrees found")
+
+    # Return the path of the first worktree (main worktree)
+    return worktrees[0]["path"]
 
 
 def get_current_branch(path: Optional[Path] = None) -> str:

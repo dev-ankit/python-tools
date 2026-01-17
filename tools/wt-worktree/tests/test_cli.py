@@ -158,3 +158,48 @@ def test_clean_command(runner, initialized_repo, no_prompt):
     """Test wt clean command."""
     result = runner.invoke(cli, ["clean", "--dry-run"])
     assert result.exit_code == 0
+
+
+def test_commands_from_secondary_worktree(runner, initialized_repo, no_prompt):
+    """Test that wt commands work from secondary worktrees."""
+    # Create a secondary worktree
+    result = runner.invoke(cli, ["switch", "-c", "feat"])
+    assert result.exit_code == 0
+
+    # Find the worktree path
+    from wt import git
+    worktrees = git.list_worktrees(initialized_repo)
+    feat_worktree = None
+    for wt in worktrees:
+        if wt.get("branch") == "feature/feat":
+            feat_worktree = wt["path"]
+            break
+
+    assert feat_worktree is not None
+
+    # Change to the secondary worktree directory
+    original_dir = os.getcwd()
+    try:
+        os.chdir(feat_worktree)
+
+        # Run wt list from the secondary worktree - should still work
+        result = runner.invoke(cli, ["list"])
+        assert result.exit_code == 0
+        assert "main" in result.output
+        assert "feat" in result.output
+
+        # Run wt status from the secondary worktree
+        result = runner.invoke(cli, ["status"])
+        assert result.exit_code == 0
+        assert "main" in result.output
+
+        # Config should also work (reads from main worktree)
+        result = runner.invoke(cli, ["config", "--list"])
+        assert result.exit_code == 0
+        assert "prefix" in result.output
+
+    finally:
+        try:
+            os.chdir(original_dir)
+        except (OSError, FileNotFoundError):
+            os.chdir("/tmp")

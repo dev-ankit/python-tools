@@ -44,7 +44,8 @@ def cli(ctx: Context):
     # Try to find repo root
     try:
         if git.is_git_repo():
-            ctx.repo_root = git.get_repo_root()
+            # Use main worktree root for config (important when running from secondary worktrees)
+            ctx.repo_root = git.get_main_worktree_root()
             ctx.config = Config(ctx.repo_root)
             ctx.manager = WorktreeManager(ctx.config)
 

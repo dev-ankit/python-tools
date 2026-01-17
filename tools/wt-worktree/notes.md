@@ -95,16 +95,23 @@ wt-worktree/
    - Solution: Added conditional import with fallback to tomli package
    - Lesson: Always consider Python version compatibility
 
+6. **Config Not Found in Secondary Worktrees**
+   - Problem: When running wt commands from a secondary worktree, it would ask to run `wt init` again because it couldn't find `.wt.toml`
+   - Cause: `git rev-parse --show-toplevel` returns the current worktree's root, not the main worktree root where `.wt.toml` is stored
+   - Solution: Added `get_main_worktree_root()` function that uses `git worktree list` to find the main worktree (always the first in the list)
+   - Lesson: When working with worktrees, distinguish between current worktree and main worktree
+   - Test: Added `test_commands_from_secondary_worktree` to verify all commands work from secondary worktrees
+
 ### Test Results
 
-- **Total Tests**: 57
-- **Passed**: 57
+- **Total Tests**: 58
+- **Passed**: 58
 - **Coverage**: 63%
 - **Key Coverage Areas**:
-  - git.py: 83% (core git operations well tested)
+  - git.py: 86% (core git operations well tested, including worktree detection)
   - config.py: 75% (configuration management tested)
   - worktree.py: 62% (worktree operations tested)
-  - cli.py: 30% (basic CLI commands tested, some edge cases untested)
+  - cli.py: 54% (CLI commands tested including secondary worktree usage)
 
 ### Future Improvements
 
