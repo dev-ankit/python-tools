@@ -9,16 +9,15 @@ from wt.worktree import WorktreeManager
 
 
 @pytest.fixture
-def manager(git_repo):
+def manager(git_repo, tmp_path, monkeypatch):
     """Create a worktree manager."""
+    # Use temp directory for config
+    monkeypatch.setenv("WT_CONFIG", str(tmp_path))
+
     config = Config(git_repo)
     # Use "main" instead of "origin/main" for tests without remotes
     config.set("default_base", "main")
-    config.save_local()
-
-    # Commit the config file so repo is clean for tests
-    git.run_git(["add", ".wt.toml"], cwd=git_repo)
-    git.run_git(["commit", "-m", "Add wt config"], cwd=git_repo)
+    config.save()
 
     return WorktreeManager(config)
 

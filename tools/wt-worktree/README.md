@@ -41,10 +41,7 @@ wt shell-init fish | source
 ## Quick Start
 
 ```bash
-# Initialize wt in a git repository
-wt init
-
-# Create and switch to a new feature worktree
+# Create and switch to a new feature worktree (no initialization needed!)
 wt switch -c my-feature
 
 # List all worktrees
@@ -64,13 +61,18 @@ wt diff my-feature
 
 # Clean up merged worktrees
 wt clean
+
+# Optional: Customize configuration
+wt init --prefix dev --path "../{name}"
 ```
 
 ## Commands
 
-### `wt init`
+### `wt init` (Optional)
 
-Initialize `wt` configuration in the current git repository.
+Create or update `wt` configuration with custom defaults. Configuration is stored globally and applies to all repositories.
+
+**Note:** This command is optional! `wt` works with sensible defaults out of the box.
 
 ```bash
 wt init [--prefix <prefix>] [--path <pattern>]
@@ -80,18 +82,20 @@ wt init [--prefix <prefix>] [--path <pattern>]
 - `--prefix`: Branch prefix for new worktrees (default: `feature`)
 - `--path`: Path pattern for worktree directories (default: `../{repo}-{name}`)
 
-**Example:**
+**Examples:**
 
 ```bash
-# Default: creates worktrees as siblings (../myrepo-feat)
-wt init
-
-# Custom prefix for branches
+# Set custom prefix for all repositories
 wt init --prefix "dev"  # Creates branches like dev/feat
 
-# Custom path pattern
+# Set custom path pattern
 wt init --path "../worktrees/{name}"
+
+# Set both
+wt init --prefix "wt" --path "../{name}"
 ```
+
+Configuration is saved to `~/.wt.toml` (or `$WT_CONFIG/.wt.toml` if set).
 
 ### `wt switch`
 
@@ -261,17 +265,14 @@ wt config --edit
 **Examples:**
 
 ```bash
-# View all config
+# View all config (shows config file location)
 wt config --list
 
 # Get specific value
 wt config prefix
 
-# Set local config
+# Set config value
 wt config prefix "dev"
-
-# Set global default
-wt config --global prefix "feature"
 
 # Open in editor
 wt config --edit
@@ -279,15 +280,17 @@ wt config --edit
 
 ## Configuration
 
-Configuration is stored in TOML files:
+Configuration is stored in a single TOML file:
+- Default location: `~/.wt.toml`
+- Custom location: Set `WT_CONFIG` environment variable to a directory
 
-- **Local config**: `.wt.toml` in repository root (highest priority)
-- **Global config**: `~/.wt.toml` (default fallback)
+**Example:** `export WT_CONFIG=/path/to/config/dir` → config saved to `/path/to/config/dir/.wt.toml`
 
 ### Config File Format
 
 ```toml
 # Branch prefix for new worktrees
+# Branches created as: <prefix>/<name>
 prefix = "feature"
 
 # Path pattern for worktree directories
@@ -298,7 +301,7 @@ path_pattern = "../{repo}-{name}"
 default_base = "origin/main"
 
 # Default worktree for `wt switch ^`
-# Auto-detected if not set
+# Auto-detected if not set (usually main)
 default_worktree = "main"
 ```
 
@@ -306,7 +309,7 @@ default_worktree = "main"
 
 | Variable | Description |
 |----------|-------------|
-| `WT_CONFIG` | Override config file path |
+| `WT_CONFIG` | Directory for config file (defaults to `~`) |
 | `WT_NO_PROMPT` | Set to `1` to auto-accept all prompts (for scripting) |
 
 ## Use Cases

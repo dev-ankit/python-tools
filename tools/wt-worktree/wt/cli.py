@@ -62,22 +62,8 @@ def cli(ctx: Context):
               help="Path pattern for worktree directories")
 @pass_context
 def init(ctx: Context, prefix: str, path_pattern: str):
-    """Initialize wt configuration in the current git repository."""
-    # Check if in a git repo
-    if not ctx.repo_root:
-        error("Not a git repository", EXIT_GIT_ERROR)
-        return
-
-    # Check if already initialized
-    if ctx.config.is_initialized():
-        error(
-            "wt is already initialized in this repository.\n"
-            "Use 'wt config' to modify configuration.",
-            EXIT_ERROR
-        )
-        return
-
-    # Create configuration
+    """Create or update wt configuration with custom defaults."""
+    # Create configuration with provided values
     config_data = {
         "prefix": prefix,
         "path_pattern": path_pattern,
@@ -85,12 +71,14 @@ def init(ctx: Context, prefix: str, path_pattern: str):
         "default_worktree": None,
     }
 
+    config = Config()
     try:
-        ctx.config.save_local(config_data)
-        success(f"Initialized wt in {ctx.repo_root}")
-        info(f"Configuration saved to {ctx.config.get_local_config_path()}")
+        config.save(config_data)
+        config_path = config.get_config_path()
+        success(f"Configuration saved to {config_path}")
         info(f"\nBranch prefix: {prefix}")
         info(f"Path pattern: {path_pattern}")
+        info(f"\nConfiguration will be used for all repositories.")
     except ConfigError as e:
         error(str(e), EXIT_ERROR)
 
@@ -107,16 +95,7 @@ def switch(ctx: Context, name: Optional[str], create: bool, base: Optional[str],
           detached: bool, shell_helper: bool):
     """Switch to a worktree, optionally creating it."""
     if not ctx.repo_root or not ctx.manager:
-        error("Not in a git repository. Run 'wt init' first.", EXIT_GIT_ERROR)
-        return
-
-    # Check if initialized
-    if not ctx.config.is_initialized():
-        error(
-            "wt is not initialized in this repository.\n"
-            "Run 'wt init' first.",
-            EXIT_ERROR
-        )
+        error("Not in a git repository.", EXIT_GIT_ERROR)
         return
 
     # Handle special names
@@ -440,28 +419,16 @@ def clean(ctx: Context, dry_run: bool, force: bool):
 @click.argument("value", required=False)
 @click.option("--list", "list_all", is_flag=True, help="Show all configuration")
 @click.option("--edit", is_flag=True, help="Open config file in $EDITOR")
-@click.option("--global", "global_config", is_flag=True, help="Modify global config")
 @pass_context
 def config(ctx: Context, key: Optional[str], value: Optional[str],
-          list_all: bool, edit: bool, global_config: bool):
+          list_all: bool, edit: bool):
     """View or modify configuration."""
     if not ctx.config:
-        # Create a global-only config
         ctx.config = Config(None)
 
     if edit:
         # Open config in editor
-        if global_config:
-            config_path = ctx.config._get_global_config_path()
-        else:
-            if not ctx.repo_root:
-                error("Not in a git repository. Use --global for global config.", EXIT_GIT_ERROR)
-                return
-            config_path = ctx.config.get_local_config_path()
-
-        if not config_path:
-            error("Cannot determine config file path", EXIT_ERROR)
-            return
+        config_path = ctx.config.get_config_path()
 
         # Create file if it doesn't exist
         if not config_path.exists():
@@ -476,6 +443,8 @@ def config(ctx: Context, key: Optional[str], value: Optional[str],
     if list_all:
         # Show all config
         all_config = ctx.config.get_all()
+        config_path = ctx.config.get_config_path()
+        info(f"Config file: {config_path}\n")
         for k, v in all_config.items():
             print(f"{k} = {v}")
         return
@@ -484,15 +453,9 @@ def config(ctx: Context, key: Optional[str], value: Optional[str],
         # Set config value
         try:
             ctx.config.set(key, value)
-            if global_config:
-                ctx.config.save_global()
-                success(f"Set global config: {key} = {value}")
-            else:
-                if not ctx.repo_root:
-                    error("Not in a git repository. Use --global for global config.", EXIT_GIT_ERROR)
-                    return
-                ctx.config.save_local()
-                success(f"Set local config: {key} = {value}")
+            ctx.config.save()
+            success(f"Set config: {key} = {value}")
+            info(f"Saved to {ctx.config.get_config_path()}")
         except (ConfigError, ValueError) as e:
             error(str(e), EXIT_ERROR)
 

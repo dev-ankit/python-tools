@@ -97,10 +97,15 @@ wt-worktree/
 
 6. **Config Not Found in Secondary Worktrees**
    - Problem: When running wt commands from a secondary worktree, it would ask to run `wt init` again because it couldn't find `.wt.toml`
-   - Cause: `git rev-parse --show-toplevel` returns the current worktree's root, not the main worktree root where `.wt.toml` is stored
-   - Solution: Added `get_main_worktree_root()` function that uses `git worktree list` to find the main worktree (always the first in the list)
-   - Lesson: When working with worktrees, distinguish between current worktree and main worktree
-   - Test: Added `test_commands_from_secondary_worktree` to verify all commands work from secondary worktrees
+   - Initial Solution: Added `get_main_worktree_root()` function to find main worktree
+   - Better Solution: Simplified to use global config in `~/.wt.toml` (or `$WT_CONFIG/.wt.toml`)
+   - Rationale: Simpler design, no need to find main worktree, works the same everywhere
+   - Changes:
+     - Config now stored in one place (home directory by default)
+     - Removed local repo config concept
+     - `wt init` is now optional (just sets custom defaults)
+     - No need to run `wt init` per repository
+   - Lesson: Sometimes the simplest solution is the best - global config is easier than per-repo config for this use case
 
 ### Test Results
 

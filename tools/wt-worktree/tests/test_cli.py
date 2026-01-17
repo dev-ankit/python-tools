@@ -16,13 +16,16 @@ def runner():
 
 
 @pytest.fixture
-def initialized_repo(git_repo):
-    """Create a git repo with wt initialized."""
+def initialized_repo(git_repo, tmp_path, monkeypatch):
+    """Create a git repo with wt config in temp directory."""
     from wt.config import Config
-    # Initialize wt in the repo
+    # Use temp directory for config
+    monkeypatch.setenv("WT_CONFIG", str(tmp_path))
+
+    # Initialize config with test values
     config = Config(git_repo)
     config.set("default_base", "main")  # Use main instead of origin/main for tests
-    config.save_local()
+    config.save()
 
     # Change to repo directory for CLI commands
     try:
@@ -48,24 +51,26 @@ def test_cli_help(runner):
     assert "Git worktree manager" in result.output
 
 
-def test_init_command(runner, git_repo):
+def test_init_command(runner, tmp_path, monkeypatch):
     """Test wt init command."""
-    os.chdir(git_repo)
+    # Use temp directory for config
+    monkeypatch.setenv("WT_CONFIG", str(tmp_path))
+
     result = runner.invoke(cli, ["init"])
     assert result.exit_code == 0
-    assert "Initialized wt" in result.output
-    assert (git_repo / ".wt.toml").exists()
+    assert "Configuration saved" in result.output
+    assert (tmp_path / ".wt.toml").exists()
 
 
-def test_init_already_initialized(runner, git_repo):
-    """Test init when already initialized."""
-    os.chdir(git_repo)
-    runner.invoke(cli, ["init"])
+def test_init_with_custom_options(runner, tmp_path, monkeypatch):
+    """Test init with custom prefix and path."""
+    # Use temp directory for config
+    monkeypatch.setenv("WT_CONFIG", str(tmp_path))
 
-    # Try to init again
-    result = runner.invoke(cli, ["init"])
-    assert result.exit_code == 1
-    assert "already initialized" in result.output
+    result = runner.invoke(cli, ["init", "--prefix", "dev", "--path", "../{name}"])
+    assert result.exit_code == 0
+    assert "prefix: dev" in result.output
+    assert (tmp_path / ".wt.toml").exists()
 
 
 def test_list_command(runner, initialized_repo):
@@ -119,7 +124,7 @@ def test_config_set(runner, initialized_repo):
     """Test wt config <key> <value>."""
     result = runner.invoke(cli, ["config", "prefix", "custom"])
     assert result.exit_code == 0
-    assert "Set local config" in result.output
+    assert "Set config" in result.output
 
 
 def test_shell_init_bash(runner):

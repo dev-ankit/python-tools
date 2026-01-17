@@ -35,24 +35,17 @@ class Config:
         Initialize configuration.
 
         Args:
-            repo_root: Root of the git repository
+            repo_root: Root of the git repository (used for path resolution)
         """
         self.repo_root = repo_root
         self._config = self.DEFAULT_CONFIG.copy()
         self._load_config()
 
     def _load_config(self):
-        """Load configuration from files."""
-        # Load global config first
-        global_config = self._get_global_config_path()
-        if global_config and global_config.exists():
-            self._merge_config(self._read_toml(global_config))
-
-        # Load local config (overrides global)
-        if self.repo_root:
-            local_config = self.repo_root / ".wt.toml"
-            if local_config.exists():
-                self._merge_config(self._read_toml(local_config))
+        """Load configuration from config file."""
+        config_path = self.get_config_path()
+        if config_path.exists():
+            self._merge_config(self._read_toml(config_path))
 
     def _read_toml(self, path: Path) -> Dict[str, Any]:
         """Read a TOML file."""
@@ -72,52 +65,24 @@ class Config:
         """Merge config dict into current config."""
         self._config.update(config)
 
-    def _get_global_config_path(self) -> Optional[Path]:
-        """Get path to global config file."""
-        # Check WT_CONFIG environment variable
+    def get_config_dir(self) -> Path:
+        """Get the config directory (WT_CONFIG env var or home directory)."""
         if "WT_CONFIG" in os.environ:
             return Path(os.environ["WT_CONFIG"])
+        return Path.home()
 
-        # Default to ~/.wt.toml
-        home = Path.home()
-        return home / ".wt.toml"
+    def get_config_path(self) -> Path:
+        """Get path to config file."""
+        return self.get_config_dir() / ".wt.toml"
 
-    def get_local_config_path(self) -> Optional[Path]:
-        """Get path to local config file."""
-        if not self.repo_root:
-            return None
-        return self.repo_root / ".wt.toml"
-
-    def save_local(self, config: Optional[Dict[str, Any]] = None):
+    def save(self, config: Optional[Dict[str, Any]] = None):
         """
-        Save configuration to local .wt.toml file.
+        Save configuration to config file.
 
         Args:
             config: Config dict to save (uses current config if None)
         """
-        if not self.repo_root:
-            raise ConfigError("Cannot save local config without repo_root")
-
-        config_path = self.get_local_config_path()
-        config_data = config if config is not None else self._config
-
-        # Filter out None values and default_worktree if auto-detected
-        filtered = {k: v for k, v in config_data.items()
-                   if v is not None and k in self.DEFAULT_CONFIG}
-
-        self._write_toml(config_path, filtered)
-
-    def save_global(self, config: Optional[Dict[str, Any]] = None):
-        """
-        Save configuration to global ~/.wt.toml file.
-
-        Args:
-            config: Config dict to save (uses current config if None)
-        """
-        config_path = self._get_global_config_path()
-        if not config_path:
-            raise ConfigError("Cannot determine global config path")
-
+        config_path = self.get_config_path()
         config_data = config if config is not None else self._config
 
         # Filter out None values
@@ -160,12 +125,6 @@ class Config:
     def get_all(self) -> Dict[str, Any]:
         """Get all configuration values."""
         return self._config.copy()
-
-    def is_initialized(self) -> bool:
-        """Check if wt is initialized (local config exists)."""
-        if not self.repo_root:
-            return False
-        return (self.repo_root / ".wt.toml").exists()
 
     def resolve_path_pattern(self, name: str, branch: str) -> Path:
         """

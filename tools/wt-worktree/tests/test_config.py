@@ -14,24 +14,18 @@ def test_default_config(git_repo):
     assert config.get("default_base") == "origin/main"
 
 
-def test_save_and_load_local_config(git_repo):
-    """Test saving and loading local config."""
+def test_save_and_load_config(git_repo, tmp_path, monkeypatch):
+    """Test saving and loading config."""
+    # Use temp directory for config
+    monkeypatch.setenv("WT_CONFIG", str(tmp_path))
+
     config = Config(git_repo)
     config.set("prefix", "custom")
-    config.save_local()
+    config.save()
 
     # Load new config instance
     config2 = Config(git_repo)
     assert config2.get("prefix") == "custom"
-
-
-def test_is_initialized(git_repo):
-    """Test checking if wt is initialized."""
-    config = Config(git_repo)
-    assert config.is_initialized() is False
-
-    config.save_local()
-    assert config.is_initialized() is True
 
 
 def test_resolve_path_pattern(git_repo):
@@ -78,7 +72,6 @@ def test_config_without_repo():
     """Test config without a repository."""
     config = Config(None)
     assert config.get("prefix") == "feature"
-    assert config.is_initialized() is False
 
 
 def test_custom_path_pattern(git_repo):
@@ -91,11 +84,21 @@ def test_custom_path_pattern(git_repo):
     assert "worktrees" in str(path)
 
 
-def test_get_local_config_path(git_repo):
-    """Test getting local config path."""
-    config = Config(git_repo)
-    path = config.get_local_config_path()
-    assert path == git_repo / ".wt.toml"
+def test_get_config_path(tmp_path, monkeypatch):
+    """Test getting config path."""
+    # Use temp directory
+    monkeypatch.setenv("WT_CONFIG", str(tmp_path))
+
+    config = Config(None)
+    path = config.get_config_path()
+    assert path == tmp_path / ".wt.toml"
+
+
+def test_get_config_path_default():
+    """Test getting default config path."""
+    config = Config(None)
+    path = config.get_config_path()
+    assert path == Path.home() / ".wt.toml"
 
 
 def test_get_all(git_repo):
