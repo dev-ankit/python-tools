@@ -14,7 +14,8 @@ from wt import git
 def temp_dir():
     """Create a temporary directory."""
     tmpdir = tempfile.mkdtemp()
-    yield Path(tmpdir)
+    # Resolve symlinks for consistent path comparison (macOS /var -> /private/var)
+    yield Path(tmpdir).resolve()
     shutil.rmtree(tmpdir, ignore_errors=True)
 
 
