@@ -208,3 +208,24 @@ def test_commands_from_secondary_worktree(runner, initialized_repo, no_prompt):
             os.chdir(original_dir)
         except (OSError, FileNotFoundError):
             os.chdir("/tmp")
+
+
+def test_run_command(runner, initialized_repo):
+    """Test wt run command."""
+    # Run a simple command in main worktree
+    result = runner.invoke(cli, ["run", "main", "echo hello"])
+    assert result.exit_code == 0
+
+
+def test_run_command_with_default_symbol(runner, initialized_repo):
+    """Test wt run command with ^ symbol for default worktree."""
+    # Run a command in default worktree using ^
+    result = runner.invoke(cli, ["run", "^", "echo hello"])
+    assert result.exit_code == 0
+
+
+def test_run_command_nonexistent_worktree(runner, initialized_repo):
+    """Test wt run command with non-existent worktree."""
+    result = runner.invoke(cli, ["run", "nonexistent", "echo hello"])
+    assert result.exit_code == 4
+    assert "not found" in result.output

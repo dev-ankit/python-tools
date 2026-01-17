@@ -376,6 +376,15 @@ def run(ctx: Context, name: str, command: str):
         error("Not in a git repository", EXIT_GIT_ERROR)
         return
 
+    # Handle special names
+    if name == "^":
+        # Use default worktree
+        default_wt = ctx.manager.get_default_worktree()
+        if not default_wt:
+            error("Cannot determine default worktree", EXIT_ERROR)
+            return
+        name = default_wt["name"]
+
     # Find worktree
     wt = ctx.manager.find_worktree_by_name(name)
     if not wt:
