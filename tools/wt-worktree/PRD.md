@@ -83,10 +83,18 @@
 - TOML configuration files
 - Shell wrappers for cd integration
 
+### Story 8: Worktree Sync ✅
+**As a user, I want to sync worktrees with their upstream branches**
+
+- [x] Task 8.1: Add git operations for stash, pull, and rebase
+- [x] Task 8.2: Implement sync_worktree method in worktree.py
+- [x] Task 8.3: Implement `wt sync` command in cli.py
+- [x] Task 8.4: Add comprehensive tests for wt sync
+- [x] Task 8.5: Update documentation
+
 ## Non-Goals (Future Considerations)
 
 - `wt clone` - Clone with pre-configuration
-- `wt sync` - Pull/rebase all worktrees
 - `wt exec` - Run command across all worktrees
 - Worktree templates
 - Agent tracking

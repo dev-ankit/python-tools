@@ -247,3 +247,63 @@ def test_run_command_nonexistent_worktree(runner, initialized_repo):
     result = runner.invoke(cli, ["run", "nonexistent", "echo hello"])
     assert result.exit_code == 4
     assert "not found" in result.output
+
+
+def test_sync_command_no_upstream(runner, initialized_repo, no_prompt):
+    """Test wt sync command when current worktree has no upstream."""
+    result = runner.invoke(cli, ["sync"])
+    # Should show error about no upstream since initialized_repo doesn't have remote
+    assert "no upstream" in result.output.lower() or "error" in result.output.lower()
+
+
+def test_sync_command_all_worktrees(runner, initialized_repo, no_prompt):
+    """Test wt sync --all command."""
+    # Create feature worktrees
+    runner.invoke(cli, ["switch", "-c", "feat"])
+
+    # Run sync on all worktrees - will have no upstream but shouldn't crash
+    result = runner.invoke(cli, ["sync", "--all"])
+    assert result.exit_code == 0 or result.exit_code == 3
+    assert "Syncing" in result.output
+
+
+def test_sync_command_include(runner, initialized_repo, no_prompt):
+    """Test wt sync --include command."""
+    # Create worktrees
+    runner.invoke(cli, ["switch", "-c", "feat1"])
+    runner.invoke(cli, ["switch", "-c", "feat2"])
+
+    # Sync only feat1
+    result = runner.invoke(cli, ["sync", "--include", "feat1"])
+    assert result.exit_code == 0 or result.exit_code == 3
+
+
+def test_sync_command_exclude(runner, initialized_repo, no_prompt):
+    """Test wt sync --all --exclude command."""
+    # Create worktrees
+    runner.invoke(cli, ["switch", "-c", "feat1"])
+    runner.invoke(cli, ["switch", "-c", "feat2"])
+
+    # Sync all except feat1
+    result = runner.invoke(cli, ["sync", "--all", "--exclude", "feat1"])
+    assert result.exit_code == 0 or result.exit_code == 3
+
+
+def test_sync_command_with_rebase(runner, initialized_repo, no_prompt):
+    """Test wt sync --rebase command."""
+    # Run sync with rebase - will have no upstream but shouldn't crash
+    result = runner.invoke(cli, ["sync", "--rebase"])
+    assert result.exit_code == 0 or result.exit_code == 3
+
+
+def test_sync_command_invalid_args(runner, initialized_repo):
+    """Test wt sync with invalid argument combinations."""
+    # Both include and exclude
+    result = runner.invoke(cli, ["sync", "--include", "feat1", "--exclude", "feat2"])
+    assert result.exit_code == 2
+    assert "Cannot use both" in result.output
+
+    # Exclude without all
+    result = runner.invoke(cli, ["sync", "--exclude", "feat1"])
+    assert result.exit_code == 2
+    assert "requires --all" in result.output
