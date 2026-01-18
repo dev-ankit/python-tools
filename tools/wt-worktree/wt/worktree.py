@@ -160,8 +160,8 @@ class WorktreeManager:
                 f"Please remove it or choose a different name."
             )
 
-        # Determine base branch (only used when creating a new branch)
-        if base is None and not use_existing_branch:
+        # Determine base branch
+        if base is None:
             base = self.config.get("default_base")
 
         # Create worktree

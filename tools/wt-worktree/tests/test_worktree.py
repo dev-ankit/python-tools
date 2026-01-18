@@ -103,6 +103,28 @@ def test_delete_worktree_keep_branch(manager, git_repo, no_prompt):
     assert git.branch_exists("feature/feat", git_repo)
 
 
+def test_create_worktree_with_existing_branch(manager, git_repo, no_prompt):
+    """Test creating worktree when branch exists but has no worktree."""
+    # First create a worktree and delete it but keep the branch
+    manager.create_worktree("feat")
+    assert git.branch_exists("feature/feat", git_repo)
+
+    # Delete worktree but keep the branch
+    deleted = manager.delete_worktree("feat", force=True, keep_branch=True)
+    assert deleted is True
+    assert git.branch_exists("feature/feat", git_repo)
+
+    # Now create worktree again - should use existing branch
+    wt_path = manager.create_worktree("feat")
+    assert wt_path.exists()
+    assert git.branch_exists("feature/feat", git_repo)
+
+    # Verify worktree is properly associated with the branch
+    wt = manager.find_worktree_by_name("feat")
+    assert wt is not None
+    assert wt["branch"] == "feature/feat"
+
+
 def test_delete_nonexistent_worktree(manager):
     """Test deleting non-existent worktree."""
     with pytest.raises(git.GitError, match="not found"):
