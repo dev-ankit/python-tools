@@ -170,15 +170,25 @@ class WorktreeManager:
         except git.GitError as e:
             raise git.GitError(f"Failed to create worktree: {e}")
 
-        # Set upstream tracking if not detached
-        if not detached:
+        # Configure push remote if not detached
+        if not detached and create_branch:
             try:
-                # Set upstream to origin/<branch>
-                remote_branch = branch
-                git.set_upstream(branch, "origin", remote_branch, self.repo_root)
+                # For new branches, configure where to push (so git push works without -u)
+                # This works even if remote branch doesn't exist yet
+                git.configure_push_remote(branch, "origin", branch, wt_path)
             except git.GitError:
-                # Upstream setting might fail if remote doesn't exist yet
-                # This is okay, user can push later
+                # If this fails, user can still push with -u flag
+                pass
+        elif not detached:
+            try:
+                # For existing branches, check if remote branch exists and set upstream
+                if git.remote_branch_exists(branch, "origin", self.repo_root):
+                    git.set_upstream(branch, "origin", branch, self.repo_root)
+                else:
+                    # Remote doesn't exist yet, configure push target instead
+                    git.configure_push_remote(branch, "origin", branch, wt_path)
+            except git.GitError:
+                # If this fails, user can still push with -u flag
                 pass
 
         return wt_path

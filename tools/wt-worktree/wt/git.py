@@ -160,6 +160,30 @@ def set_upstream(branch: str, remote: str = "origin",
     run_git(["branch", f"--set-upstream-to={remote}/{remote_branch}", branch], cwd=path)
 
 
+def configure_push_remote(branch: str, remote: str = "origin",
+                         remote_branch: Optional[str] = None, path: Optional[Path] = None):
+    """
+    Configure where a branch should push to, even if remote branch doesn't exist yet.
+
+    This sets branch.{branch}.remote and branch.{branch}.merge so that 'git push'
+    will work without needing to specify the remote or use -u flag.
+
+    Args:
+        branch: Local branch name
+        remote: Remote name
+        remote_branch: Remote branch name (defaults to same as local)
+        path: Repository path to run git commands in
+    """
+    if remote_branch is None:
+        remote_branch = branch
+
+    # Set the remote
+    run_git(["config", f"branch.{branch}.remote", remote], cwd=path)
+
+    # Set the merge target (what the branch tracks/pushes to)
+    run_git(["config", f"branch.{branch}.merge", f"refs/heads/{remote_branch}"], cwd=path)
+
+
 def list_worktrees(path: Optional[Path] = None) -> List[dict]:
     """
     List all worktrees.

@@ -143,3 +143,19 @@ def test_diff_trees(git_repo):
     # Get diff
     diff = git.diff_trees("HEAD~1", "HEAD", git_repo)
     assert "file2.txt" in diff
+
+
+def test_configure_push_remote(git_repo):
+    """Test configuring push remote for a branch."""
+    # Create a new branch
+    git.create_branch("test-branch", "HEAD", git_repo)
+
+    # Configure push remote
+    git.configure_push_remote("test-branch", "origin", "test-branch", git_repo)
+
+    # Verify configuration was set
+    result = git.run_git(["config", "branch.test-branch.remote"], cwd=git_repo)
+    assert result.stdout.strip() == "origin"
+
+    result = git.run_git(["config", "branch.test-branch.merge"], cwd=git_repo)
+    assert result.stdout.strip() == "refs/heads/test-branch"
