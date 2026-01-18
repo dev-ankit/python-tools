@@ -68,7 +68,19 @@ def test_list_worktrees(git_repo):
 def test_add_worktree(git_repo, temp_dir):
     """Test adding a worktree."""
     wt_path = temp_dir / "test-worktree"
-    git.add_worktree(wt_path, "test-branch", "HEAD", repo_path=git_repo)
+    git.add_worktree(wt_path, "test-branch", True, "HEAD", repo_path=git_repo)
+
+    assert wt_path.exists()
+    assert git.branch_exists("test-branch", git_repo)
+
+    worktrees = git.list_worktrees(git_repo)
+    assert len(worktrees) == 2
+
+def test_add_worktree_with_existing_branch(git_repo, temp_dir):
+    """Test adding a worktree with an existing branch."""
+    git.create_branch("test-branch", "HEAD", git_repo)
+    wt_path = temp_dir / "test-worktree"
+    git.add_worktree(wt_path, "test-branch", False, "HEAD", repo_path=git_repo)
 
     assert wt_path.exists()
     assert git.branch_exists("test-branch", git_repo)
@@ -80,7 +92,7 @@ def test_add_worktree(git_repo, temp_dir):
 def test_remove_worktree(git_repo, temp_dir):
     """Test removing a worktree."""
     wt_path = temp_dir / "test-worktree"
-    git.add_worktree(wt_path, "test-branch", "HEAD", repo_path=git_repo)
+    git.add_worktree(wt_path, "test-branch", True, "HEAD", repo_path=git_repo)
 
     git.remove_worktree(wt_path, repo_path=git_repo)
     assert not wt_path.exists()

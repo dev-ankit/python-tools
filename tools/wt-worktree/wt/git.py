@@ -212,14 +212,19 @@ def worktree_exists(name: str, path: Optional[Path] = None) -> Tuple[bool, Optio
     return False, None
 
 
-def add_worktree(path: Path, branch: str, base: Optional[str] = None,
-                detached: bool = False, repo_path: Optional[Path] = None):
+def add_worktree(path: Path,
+                 branch: str,
+                 create_branch: bool = False,
+                 base: Optional[str] = None,
+                 detached: bool = False,
+                 repo_path: Optional[Path] = None):
     """
     Create a new worktree.
 
     Args:
         path: Path where worktree will be created
         branch: Branch name for the worktree
+        create_branch: create a new branch instead of using an existing one
         base: Base branch/commit (if None, uses current HEAD)
         detached: Create in detached HEAD state
         repo_path: Path to main repo (for running command)
@@ -228,13 +233,18 @@ def add_worktree(path: Path, branch: str, base: Optional[str] = None,
 
     if detached:
         args.append("--detach")
-    else:
+        args.append(str(path))
+        if base:
+            args.append(base)
+    elif create_branch:
         args.extend(["-b", branch])
-
-    args.append(str(path))
-
-    if base:
-        args.append(base)
+        args.append(str(path))
+        if base:
+            args.append(base)
+    else:
+        # Use existing branch - format: git worktree add <path> <existing-branch>
+        args.append(str(path))
+        args.append(branch)
 
     run_git(args, cwd=repo_path)
 

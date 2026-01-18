@@ -141,20 +141,14 @@ class WorktreeManager:
         """
         # Get full branch name
         branch = self.config.get_branch_name(name)
+        create_branch = not git.branch_exists(branch, self.repo_root)
 
-        # Check if branch already exists
-        if git.branch_exists(branch, self.repo_root):
-            exists, path = git.worktree_exists(branch, self.repo_root)
-            if exists:
-                raise git.GitError(
-                    f"Worktree '{name}' already exists at {path}\n"
-                    f"Use 'wt switch {name}' to switch to it."
-                )
-            else:
-                raise git.GitError(
-                    f"Branch '{branch}' already exists but has no worktree.\n"
-                    f"Use 'git worktree add' manually or delete the branch first."
-                )
+        exists, path = git.worktree_exists(branch, self.repo_root)
+        if exists:
+            raise git.GitError(
+                f"Worktree '{name}' already exists at {path}\n"
+                f"Use 'wt switch {name}' to switch to it."
+            )
 
         # Resolve worktree path
         wt_path = self.config.resolve_path_pattern(name, branch)
@@ -172,7 +166,7 @@ class WorktreeManager:
 
         # Create worktree
         try:
-            git.add_worktree(wt_path, branch, base, detached, self.repo_root)
+            git.add_worktree(wt_path, branch, create_branch, base, detached, self.repo_root)
         except git.GitError as e:
             raise git.GitError(f"Failed to create worktree: {e}")
 

@@ -78,7 +78,7 @@ def init(ctx: Context, prefix: str, path_pattern: str):
         success(f"Configuration saved to {config_path}")
         info(f"\nBranch prefix: {prefix}")
         info(f"Path pattern: {path_pattern}")
-        info(f"\nConfiguration will be used for all repositories.")
+        info("\nConfiguration will be used for all repositories.")
     except ConfigError as e:
         error(str(e), EXIT_ERROR)
 
@@ -148,20 +148,13 @@ def switch(ctx: Context, name: Optional[str], create: bool, base: Optional[str],
         if shell_helper:
             print(target_wt["path"])
         else:
-            success(f"Switched to worktree '{name}' at {target_wt['path']}")
+            success(f"To switch to worktree '{name}' run: cd {target_wt['path']}")
 
     elif create:
         # Create new worktree
         try:
             # Check if branch exists
             full_branch = ctx.config.get_branch_name(name)
-            if git.branch_exists(full_branch, ctx.repo_root):
-                if not confirm(
-                    f"Branch '{full_branch}' already exists.\n"
-                    "Create worktree for existing branch?",
-                    default=True
-                ):
-                    sys.exit(EXIT_CANCELLED)
 
             # Create worktree
             wt_path = ctx.manager.create_worktree(name, base, detached)
@@ -175,7 +168,7 @@ def switch(ctx: Context, name: Optional[str], create: bool, base: Optional[str],
             if shell_helper:
                 print(wt_path)
             else:
-                success(f"Created and switched to worktree '{name}' at {wt_path}")
+                success(f"To switch to worktree '{name}' run: cd {wt_path}")
 
         except git.GitError as e:
             error(str(e), EXIT_GIT_ERROR)
