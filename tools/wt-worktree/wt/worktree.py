@@ -6,7 +6,7 @@ from . import git
 from .config import Config
 from .prompts import confirm, error, info, warning
 
-
+EXIT_ERROR = 1
 class WorktreeManager:
     """Manages git worktree operations."""
 
@@ -160,8 +160,8 @@ class WorktreeManager:
                 f"Please remove it or choose a different name."
             )
 
-        # Determine base branch
-        if base is None:
+        # Determine base branch (only used when creating a new branch)
+        if base is None and not use_existing_branch:
             base = self.config.get("default_base")
 
         # Create worktree
@@ -218,12 +218,11 @@ class WorktreeManager:
         # Check for uncommitted changes
         if not force and git.has_uncommitted_changes(wt_path):
             status = git.get_status_short(wt_path)
-            if not confirm(
+            error(
                 f"Worktree '{name}' has uncommitted changes:\n{status}\n"
-                "Delete anyway?",
-                default=False
-            ):
-                return False
+                "use --force to delete anyway",
+                EXIT_ERROR)
+            return
 
         # Check for unpushed commits
         if not force and branch:
