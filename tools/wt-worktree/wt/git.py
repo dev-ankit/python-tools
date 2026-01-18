@@ -385,3 +385,109 @@ def get_default_branch(path: Optional[Path] = None) -> str:
 
     # Last resort: return main
     return "main"
+
+
+def stash_changes(path: Optional[Path] = None, include_untracked: bool = True) -> bool:
+    """
+    Stash uncommitted changes.
+
+    Args:
+        path: Repository path
+        include_untracked: Include untracked files in stash
+
+    Returns:
+        True if changes were stashed, False if nothing to stash
+    """
+    args = ["stash", "push"]
+    if include_untracked:
+        args.append("--include-untracked")
+    args.extend(["-m", "wt sync auto-stash"])
+
+    result = run_git(args, cwd=path, check=False)
+    # Git stash returns 0 even if nothing to stash, so check output
+    return result.returncode == 0 and "No local changes to save" not in result.stdout
+
+
+def stash_pop(path: Optional[Path] = None) -> bool:
+    """
+    Pop the most recent stash.
+
+    Args:
+        path: Repository path
+
+    Returns:
+        True if successful, False if conflicts or no stash
+    """
+    result = run_git(["stash", "pop"], cwd=path, check=False)
+    return result.returncode == 0
+
+
+def pull_branch(branch: str, path: Optional[Path] = None, remote: str = "origin") -> Tuple[bool, str]:
+    """
+    Pull changes from remote branch.
+
+    Args:
+        branch: Branch name
+        path: Repository path
+        remote: Remote name
+
+    Returns:
+        Tuple of (success, message)
+    """
+    result = run_git(["pull", remote, branch], cwd=path, check=False)
+
+    if result.returncode == 0:
+        # Check if it was a fast-forward or already up to date
+        if "Already up to date" in result.stdout:
+            return True, "already_up_to_date"
+        elif "Fast-forward" in result.stdout:
+            return True, "fast_forward"
+        else:
+            return True, "merged"
+    else:
+        # Check for conflict
+        if "CONFLICT" in result.stdout or "CONFLICT" in result.stderr:
+            return False, "conflict"
+        else:
+            return False, result.stderr.strip()
+
+
+def rebase_branch(branch: str, onto: str, path: Optional[Path] = None) -> Tuple[bool, str]:
+    """
+    Rebase current branch onto another branch.
+
+    Args:
+        branch: Current branch name (for reference)
+        onto: Branch to rebase onto
+        path: Repository path
+
+    Returns:
+        Tuple of (success, message)
+    """
+    result = run_git(["rebase", onto], cwd=path, check=False)
+
+    if result.returncode == 0:
+        # Check if it was already up to date or had commits
+        if "is up to date" in result.stdout or "is up to date" in result.stderr:
+            return True, "up_to_date"
+        else:
+            return True, "rebased"
+    else:
+        # Check for conflict
+        if "CONFLICT" in result.stdout or "CONFLICT" in result.stderr:
+            # Abort the rebase to leave repo in clean state
+            run_git(["rebase", "--abort"], cwd=path, check=False)
+            return False, "conflict"
+        else:
+            return False, result.stderr.strip()
+
+
+def fetch_remote(remote: str = "origin", path: Optional[Path] = None):
+    """
+    Fetch from remote.
+
+    Args:
+        remote: Remote name
+        path: Repository path
+    """
+    run_git(["fetch", remote], cwd=path)

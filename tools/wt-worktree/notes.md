@@ -133,6 +133,27 @@ wt-worktree/
      - `test_run_command_nonexistent_worktree`: Tests error handling for non-existent worktrees
    - Lesson: Always ensure consistency across commands - if a special symbol works in one command, users will expect it to work in related commands too
 
+8. **Implementing wt sync Command**
+   - Problem: Need to sync worktrees with their upstream branches, handling stash/unstash, pull, rebase
+   - Solution:
+     - Added git operations for stash, pull, and rebase in git.py
+     - Implemented sync_worktree method in worktree.py to handle individual worktree sync
+     - Implemented sync_worktrees method to handle multiple worktrees
+     - Added sync command in cli.py with --all, --include, --exclude, --rebase options
+   - Implementation Details:
+     - Stash changes before pull using `git stash push --include-untracked`
+     - Pull from upstream using `git pull <remote> <branch>`
+     - Optionally rebase onto default base (origin/main)
+     - Restore stashed changes using `git stash pop`
+     - Handle conflicts by aborting rebase/merge and leaving repo in clean state
+     - Continue with other worktrees if one fails
+   - Error Handling:
+     - Initially used `error()` function which calls sys.exit, causing tests to fail
+     - Fixed by using `warning()` function instead to print errors without exiting
+     - This allows the command to continue syncing other worktrees after failures
+   - Tests: Added 6 comprehensive tests covering all options and edge cases
+   - Lesson: When implementing operations that process multiple items, use warning/info functions instead of error() to avoid early exit
+
 ### Future Improvements
 
 1. **Increase CLI Test Coverage**: Add more edge case tests for CLI commands
@@ -140,3 +161,4 @@ wt-worktree/
 3. **Shell Integration Tests**: Test actual shell wrapper execution
 4. **Error Message Tests**: Verify all error messages are clear and actionable
 5. **Performance**: Optimize git operations for large repositories
+6. **Sync with Remote Integration Tests**: Add tests with actual remote repositories to test full sync flow

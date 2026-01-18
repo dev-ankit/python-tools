@@ -487,6 +487,76 @@ def config(ctx: Context, key: Optional[str], value: Optional[str],
         click.echo(click.get_current_context().get_help())
 
 
+@cli.command()
+@click.option("--all", "sync_all", is_flag=True, help="Sync all worktrees")
+@click.option("--include", help="Comma-separated list of worktrees to sync")
+@click.option("--exclude", help="Comma-separated list of worktrees to skip")
+@click.option("--rebase", is_flag=True, help="Rebase onto default base after pull")
+@pass_context
+def sync(ctx: Context, sync_all: bool, include: Optional[str],
+         exclude: Optional[str], rebase: bool):
+    """Sync worktrees with their upstream branches."""
+    if not ctx.repo_root or not ctx.manager:
+        error("Not in a git repository", EXIT_GIT_ERROR)
+        return
+
+    # Validate scope selection
+    has_scope = sync_all or include or exclude
+    if not has_scope:
+        # No flags - sync current worktree only
+        try:
+            succeeded, failed = ctx.manager.sync_worktrees(None, rebase)
+        except git.GitError as e:
+            error(str(e), EXIT_GIT_ERROR)
+            return
+    else:
+        # Determine which worktrees to sync
+        all_worktrees = ctx.manager.list_worktrees()
+        all_names = [wt["name"] for wt in all_worktrees]
+
+        if include and exclude:
+            error("Cannot use both --include and --exclude", EXIT_INVALID_ARGS)
+            return
+
+        if include:
+            # Sync specific worktrees
+            worktree_names = [name.strip() for name in include.split(",")]
+        elif exclude:
+            # Sync all except excluded
+            if not sync_all:
+                error("--exclude requires --all", EXIT_INVALID_ARGS)
+                return
+            exclude_names = [name.strip() for name in exclude.split(",")]
+            worktree_names = [name for name in all_names if name not in exclude_names]
+        else:
+            # --all without --exclude
+            worktree_names = all_names
+
+        try:
+            succeeded, failed = ctx.manager.sync_worktrees(worktree_names, rebase)
+        except git.GitError as e:
+            error(str(e), EXIT_GIT_ERROR)
+            return
+
+    # Print summary
+    total = len(succeeded) + len(failed)
+    if failed:
+        warning(f"\nSync complete ({len(succeeded)}/{total} succeeded)\n")
+
+        # Print conflict details
+        if any("conflict" in f["error"] for f in failed):
+            info("Conflicts in {} worktree(s):".format(len([f for f in failed if "conflict" in f["error"]])))
+            for f in failed:
+                if "conflict" in f["error"]:
+                    conflict_type = f["error"].replace("_", " ")
+                    msg = f"  {f['name']} - {conflict_type}, run 'wt switch {f['name']}' to resolve"
+                    if f.get("stashed"):
+                        msg += "\n         stashed changes preserved in stash@{0}"
+                    info(msg)
+    else:
+        success(f"\nSync complete ({len(succeeded)}/{total} succeeded)")
+
+
 @cli.command("shell-init")
 @click.argument("shell", type=click.Choice(get_supported_shells()))
 def shell_init(shell: str):

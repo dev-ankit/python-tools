@@ -394,3 +394,189 @@ class WorktreeManager:
                 warning(f"Failed to remove {name}: {e}")
 
         return removed
+
+    def sync_worktree(self, wt: dict, rebase: bool = False) -> dict:
+        """
+        Sync a single worktree with its upstream branch.
+
+        Args:
+            wt: Worktree dict
+            rebase: Rebase onto default base after pull
+
+        Returns:
+            Dict with keys: success, stashed, message, error
+        """
+        wt_path = wt["path"]
+        wt_name = wt["name"]
+        branch = wt.get("branch")
+
+        result = {
+            "success": False,
+            "stashed": False,
+            "message": "",
+            "error": None,
+        }
+
+        # Skip if detached HEAD
+        if not branch:
+            result["error"] = "detached HEAD, skipping"
+            return result
+
+        # Get upstream branch
+        upstream = git.get_upstream_branch(branch, self.repo_root)
+        if not upstream:
+            result["error"] = "no upstream branch"
+            return result
+
+        # Parse remote from upstream (e.g., "origin/feature/foo" -> "origin", "feature/foo")
+        remote_parts = upstream.split('/', 1)
+        if len(remote_parts) < 2:
+            result["error"] = f"invalid upstream: {upstream}"
+            return result
+
+        remote = remote_parts[0]
+        remote_branch = remote_parts[1]
+
+        # Step 1: Stash uncommitted changes if any
+        if git.has_uncommitted_changes(wt_path):
+            info(f"[{wt_name}] Stashing uncommitted changes...")
+            if git.stash_changes(wt_path):
+                result["stashed"] = True
+            else:
+                result["error"] = "failed to stash changes"
+                return result
+
+        try:
+            # Step 2: Pull from upstream
+            info(f"[{wt_name}] Pulling from {upstream}...")
+            pull_success, pull_msg = git.pull_branch(remote_branch, wt_path, remote)
+
+            if not pull_success:
+                result["error"] = f"pull {pull_msg}"
+                return result
+
+            # Update message based on pull result
+            if pull_msg == "already_up_to_date":
+                result["message"] = "✓ Already up to date"
+            elif pull_msg == "fast_forward":
+                # Count commits
+                try:
+                    ahead, _ = git.get_ahead_behind(branch, upstream, self.repo_root)
+                    result["message"] = f"✓ Fast-forward: {ahead} commits"
+                except git.GitError:
+                    result["message"] = "✓ Fast-forward"
+            else:
+                result["message"] = "✓ Merged: 1 commit"
+
+            # Step 3: Rebase onto default base if requested
+            if rebase:
+                default_base = self.config.get("default_base")
+                if not default_base:
+                    default_base = "origin/main"
+
+                info(f"[{wt_name}] Rebasing onto {default_base}...")
+                rebase_success, rebase_msg = git.rebase_branch(branch, default_base, wt_path)
+
+                if not rebase_success:
+                    result["error"] = f"rebase {rebase_msg}"
+                    return result
+
+                # Update message
+                if rebase_msg == "up_to_date":
+                    result["message"] += "\n✓ Already based on " + default_base
+                else:
+                    # Count commits ahead of base
+                    try:
+                        ahead, _ = git.get_ahead_behind(branch, default_base, self.repo_root)
+                        result["message"] += f"\n✓ Rebased, {ahead} commits ahead"
+                    except git.GitError:
+                        result["message"] += "\n✓ Rebased"
+
+            result["success"] = True
+
+        finally:
+            # Step 4: Pop stash if we stashed earlier
+            if result["stashed"]:
+                info(f"[{wt_name}] Restoring uncommitted changes...")
+                if git.stash_pop(wt_path):
+                    result["message"] += "\n✓ Stash applied"
+                else:
+                    # If pop failed, it might be due to conflicts
+                    # Leave it in the stash for user to handle
+                    warning(f"[{wt_name}] Failed to apply stash, preserved in stash@{{0}}")
+                    if result["success"]:
+                        result["error"] = "stash conflict"
+                        result["success"] = False
+
+        return result
+
+    def sync_worktrees(self, worktree_names: Optional[List[str]] = None,
+                      rebase: bool = False) -> Tuple[List[dict], List[dict]]:
+        """
+        Sync multiple worktrees with their upstream branches.
+
+        Args:
+            worktree_names: List of worktree names to sync (None = current worktree only)
+            rebase: Rebase onto default base after pull
+
+        Returns:
+            Tuple of (succeeded, failed) where each is a list of dicts with keys:
+            name, message (for succeeded) or name, error, stashed (for failed)
+        """
+        # Determine which worktrees to sync
+        all_worktrees = self.list_worktrees()
+
+        if worktree_names is None:
+            # Sync current worktree only
+            current = self.get_current_worktree()
+            if not current:
+                raise git.GitError("Cannot determine current worktree")
+            worktrees_to_sync = [current]
+        else:
+            # Find specified worktrees
+            worktrees_to_sync = []
+            for name in worktree_names:
+                wt = self.find_worktree_by_name(name)
+                if wt:
+                    worktrees_to_sync.append(wt)
+                else:
+                    warning(f"Worktree '{name}' not found, skipping")
+
+        if not worktrees_to_sync:
+            raise git.GitError("No worktrees to sync")
+
+        info(f"Syncing {len(worktrees_to_sync)} worktree(s)...\n")
+
+        succeeded = []
+        failed = []
+
+        for wt in worktrees_to_sync:
+            wt_name = wt["name"]
+            result = self.sync_worktree(wt, rebase)
+
+            if result["success"]:
+                succeeded.append({
+                    "name": wt_name,
+                    "message": result["message"]
+                })
+                # Print success message
+                for line in result["message"].split('\n'):
+                    if line:
+                        info(f"[{wt_name}] {line}")
+            else:
+                failed.append({
+                    "name": wt_name,
+                    "error": result["error"],
+                    "stashed": result.get("stashed", False)
+                })
+                # Print error message (without exiting)
+                error_msg = result["error"]
+                if "conflict" in error_msg:
+                    warning(f"[{wt_name}] ✗ {error_msg.capitalize()}")
+                    info(f"[{wt_name}] Skipping, resolve manually")
+                else:
+                    warning(f"[{wt_name}] ✗ {error_msg}")
+
+            print()  # Empty line between worktrees
+
+        return succeeded, failed
