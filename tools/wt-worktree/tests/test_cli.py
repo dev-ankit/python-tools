@@ -404,3 +404,34 @@ def test_detached_worktree_delete(runner, initialized_repo, no_prompt):
     manager = WorktreeManager(config)
     wt = manager.find_worktree_by_name("mydetached")
     assert wt is None
+
+
+def test_detached_worktree_backward_compatibility(runner, initialized_repo, no_prompt):
+    """Test that detached worktrees created without stored name still work."""
+    # Create a detached worktree using raw git (simulates old behavior)
+    from wt import git
+    from wt.config import Config
+    from wt.worktree import WorktreeManager
+
+    config = Config(initialized_repo)
+    wt_path = config.resolve_path_pattern("legacy", "feature/legacy")
+    git.add_worktree(wt_path, "legacy", create_branch=False, base="HEAD",
+                     detached=True, repo_path=initialized_repo)
+
+    # Note: Not calling set_worktree_name - simulates old behavior
+
+    # List should infer name from path
+    manager = WorktreeManager(config)
+    worktrees = manager.list_worktrees()
+    legacy_wt = None
+    for wt in worktrees:
+        if "legacy" in wt["name"]:
+            legacy_wt = wt
+            break
+
+    assert legacy_wt is not None
+    assert legacy_wt["name"] == "legacy"  # Inferred from path
+
+    # Should be able to find it by inferred name
+    found_wt = manager.find_worktree_by_name("legacy")
+    assert found_wt is not None

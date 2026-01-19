@@ -20,6 +20,37 @@ class WorktreeManager:
         self.config = config
         self.repo_root = config.repo_root
 
+    def _infer_name_from_path(self, wt_path: Path) -> Optional[str]:
+        """
+        Try to infer worktree name from its path based on path_pattern.
+
+        Provides backward compatibility for detached worktrees created before
+        the name-storing feature was added.
+
+        Args:
+            wt_path: Path to the worktree
+
+        Returns:
+            Inferred name or None
+        """
+        # Get the pattern and try common formats
+        pattern = self.config.get("path_pattern")
+        repo_name = self.repo_root.name
+
+        # Try pattern: ../{repo}-{name}
+        if pattern == "../{repo}-{name}":
+            expected_prefix = f"{repo_name}-"
+            if wt_path.name.startswith(expected_prefix):
+                return wt_path.name[len(expected_prefix):]
+
+        # Try pattern: ../{name}
+        elif pattern == "../{name}":
+            # Exclude the main worktree
+            if wt_path != self.repo_root:
+                return wt_path.name
+
+        return None
+
     def list_worktrees(self) -> List[dict]:
         """
         List all worktrees with enhanced information.
@@ -40,13 +71,18 @@ class WorktreeManager:
             if wt.get("branch"):
                 wt["name"] = self.config.extract_worktree_name(wt["branch"])
             else:
-                # For detached worktrees, try to get name from git config
+                # For detached worktrees, try multiple sources
                 stored_name = git.get_worktree_name(wt["path"])
                 if stored_name:
                     wt["name"] = stored_name
                 else:
-                    # Fallback: use commit hash as identifier
-                    wt["name"] = f"(detached-{wt['commit'][:7]})"
+                    # Try to infer from path (backward compatibility)
+                    inferred_name = self._infer_name_from_path(wt["path"])
+                    if inferred_name:
+                        wt["name"] = inferred_name
+                    else:
+                        # Fallback: use commit hash as identifier
+                        wt["name"] = f"(detached-{wt['commit'][:7]})"
 
         return worktrees
 

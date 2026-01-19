@@ -169,6 +169,8 @@ wt-worktree/
    - Key Insight: Git's `--worktree` config flag requires `extensions.worktreeConfig` to be enabled first
    - Tests: Added 6 comprehensive tests for detached worktree creation, listing, switching, running commands, and deletion
    - Lesson: Per-worktree config in git requires enabling the worktreeConfig extension, and is the right way to store worktree-specific metadata
+   - Backward Compatibility: Added `_infer_name_from_path()` to infer names from path patterns for detached worktrees created before this fix or via raw git commands
+   - Fallback chain: stored config → inferred from path → `(detached-<commit>)`
 
 ### Future Improvements
 
