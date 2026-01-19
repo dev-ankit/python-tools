@@ -107,17 +107,6 @@ wt-worktree/
      - No need to run `wt init` per repository
    - Lesson: Sometimes the simplest solution is the best - global config is easier than per-repo config for this use case
 
-### Test Results
-
-- **Total Tests**: 58
-- **Passed**: 58
-- **Coverage**: 63%
-- **Key Coverage Areas**:
-  - git.py: 86% (core git operations well tested, including worktree detection)
-  - config.py: 75% (configuration management tested)
-  - worktree.py: 62% (worktree operations tested)
-  - cli.py: 54% (CLI commands tested including secondary worktree usage)
-
 7. **Missing Special Symbol Support in `wt run`**
    - Problem: The `wt run` command didn't support the `^` (default) and `-` (previous) symbols, while `wt switch` did
    - Error: Running `wt run ^ "git status"` or `wt run - "git diff"` resulted in "Error: Worktree not found"
@@ -125,12 +114,6 @@ wt-worktree/
    - Implementation:
      - Added check `if name == "-":` to find the previous worktree from `.wt_previous` file and resolve it to the worktree name
      - Added check `elif name == "^":` to get the default worktree using `ctx.manager.get_default_worktree()` and use its name
-   - Tests: Added five new tests in test_cli.py:
-     - `test_run_command`: Tests running a command in a normal worktree
-     - `test_run_command_with_default_symbol`: Tests running a command using `^` symbol
-     - `test_run_command_with_previous_symbol`: Tests running a command using `-` symbol
-     - `test_run_command_no_previous_worktree`: Tests error handling when no previous worktree exists
-     - `test_run_command_nonexistent_worktree`: Tests error handling for non-existent worktrees
    - Lesson: Always ensure consistency across commands - if a special symbol works in one command, users will expect it to work in related commands too
 
 8. **Implementing wt sync Command**
@@ -151,7 +134,6 @@ wt-worktree/
      - Initially used `error()` function which calls sys.exit, causing tests to fail
      - Fixed by using `warning()` function instead to print errors without exiting
      - This allows the command to continue syncing other worktrees after failures
-   - Tests: Added 6 comprehensive tests covering all options and edge cases
    - Lesson: When implementing operations that process multiple items, use warning/info functions instead of error() to avoid early exit
 
 9. **Detached Worktree Name Preservation**
@@ -167,16 +149,6 @@ wt-worktree/
      - Modified `list_worktrees()` to retrieve stored names or fallback to `(detached-<commit>)`
      - Fixed base branch selection: detached worktrees now use HEAD instead of default_base
    - Key Insight: Git's `--worktree` config flag requires `extensions.worktreeConfig` to be enabled first
-   - Tests: Added 6 comprehensive tests for detached worktree creation, listing, switching, running commands, and deletion
    - Lesson: Per-worktree config in git requires enabling the worktreeConfig extension, and is the right way to store worktree-specific metadata
    - Backward Compatibility: Added `_infer_name_from_path()` to infer names from path patterns for detached worktrees created before this fix or via raw git commands
    - Fallback chain: stored config → inferred from path → `(detached-<commit>)`
-
-### Future Improvements
-
-1. **Increase CLI Test Coverage**: Add more edge case tests for CLI commands
-2. **Integration Tests**: Add end-to-end tests with real workflows
-3. **Shell Integration Tests**: Test actual shell wrapper execution
-4. **Error Message Tests**: Verify all error messages are clear and actionable
-5. **Performance**: Optimize git operations for large repositories
-6. **Sync with Remote Integration Tests**: Add tests with actual remote repositories to test full sync flow
