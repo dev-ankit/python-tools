@@ -491,7 +491,7 @@ def config(ctx: Context, key: Optional[str], value: Optional[str],
 @click.option("--all", "sync_all", is_flag=True, help="Sync all worktrees")
 @click.option("--include", help="Comma-separated list of worktrees to sync")
 @click.option("--exclude", help="Comma-separated list of worktrees to skip")
-@click.option("--rebase", is_flag=True, help="Rebase onto default base after pull")
+@click.option("-r", "--rebase", is_flag=True, help="Rebase onto default base after pull")
 @pass_context
 def sync(ctx: Context, sync_all: bool, include: Optional[str],
          exclude: Optional[str], rebase: bool):

@@ -296,6 +296,13 @@ def test_sync_command_with_rebase(runner, initialized_repo, no_prompt):
     assert result.exit_code == 0 or result.exit_code == 3
 
 
+def test_sync_command_with_rebase_shortcut(runner, initialized_repo, no_prompt):
+    """Test wt sync -r command (shortcut for --rebase)."""
+    # Run sync with -r shortcut - will have no upstream but shouldn't crash
+    result = runner.invoke(cli, ["sync", "-r"])
+    assert result.exit_code == 0 or result.exit_code == 3
+
+
 def test_sync_command_invalid_args(runner, initialized_repo):
     """Test wt sync with invalid argument combinations."""
     # Both include and exclude
